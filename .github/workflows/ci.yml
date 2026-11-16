@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: webhooks
+          POSTGRES_USER: webhooks
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U webhooks -d webhooks"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      DB_HOST: 127.0.0.1
+      DB_NAME: webhooks
+      DB_USER: webhooks
+      DB_PASSWORD: test_password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_pgsql
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: php bin/migrate.php
+      - run: composer test
+      - run: composer analyse
