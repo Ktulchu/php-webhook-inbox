@@ -261,7 +261,7 @@ docker compose exec db psql -U webhooks -d webhooks `
     -c 'SELECT source, event_id, amount FROM demo_effects;'
 ```
 
-**Note:** In the PowerShell code, ```` at line ends represent PowerShell's backtick continuation character after rendering. If you change `WEBHOOK_SECRET` in `.env`, change the `$secret` in this example to match.
+**PowerShell note:** A single backtick at the end of a command line is PowerShell's continuation character; do not leave spaces after it. If you change `WEBHOOK_SECRET` in `.env`, change `$secret` above to match.
 
 ## 4. Yii2
 
@@ -324,48 +324,105 @@ For an `InboxController`, you can then run `php yii inbox/once`. The worker requ
 
 ## 5. Symfony and Doctrine DBAL 4
 
-Install the package in your Symfony application. Use its existing PostgreSQL `Doctrine\DBAL\Connection` (e.g. from DoctrineBundle), not a new connection.
+Install the inbox package in your existing Symfony application. Configure its **Doctrine DBAL 4 PostgreSQL** `Doctrine\DBAL\Connection` service; the library does not create a connection or install Symfony itself.
 
-**Inside a Symfony HTTP controller method** with `Connection $db` and an application-configured `$secret`:
+**`src/Controller/DemoWebhookController.php`** — a complete illustrative controller for the *demo* HMAC (Symfony 6.4+/7+, using attribute routes):
 
 ```php
+<?php
+declare(strict_types=1);
+
+namespace App\Controller;
+
 use Doctrine\DBAL\Connection;
 use Ktulchu\WebhookInbox\Adapter\DoctrineAdapter;
 use Ktulchu\WebhookInbox\Inbox;
 use Ktulchu\WebhookInbox\Receiver;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\Routing\Attribute\Route;
 
-public function receive(Request $request, Connection $db, string $secret): JsonResponse
+final class DemoWebhookController
 {
-    try {
-        $receiver = new Receiver(new Inbox(new DoctrineAdapter($db)), 'demo', $secret);
-        $result = $receiver->handle(
-            $request->getMethod(),
-            $request->getContent(),
-            $request->headers->get('X-Webhook-Timestamp'),
-            $request->headers->get('X-Webhook-Signature')
-        );
-        return new JsonResponse($result['body'], $result['status']);
-    } catch (\Throwable $error) {
-        return new JsonResponse(['status' => 'unavailable'], 503);
+    public function __construct(
+        private readonly Connection $db,
+        private readonly string $webhookSecret,
+    ) {
+    }
+
+    #[Route('/webhook/demo', name: 'webhook_demo', methods: ['POST'])]
+    public function __invoke(Request $request): JsonResponse
+    {
+        try {
+            $receiver = new Receiver(
+                new Inbox(new DoctrineAdapter($this->db)),
+                'demo',
+                $this->webhookSecret
+            );
+            $result = $receiver->handle(
+                $request->getMethod(),
+                $request->getContent(),
+                $request->headers->get('X-Webhook-Timestamp'),
+                $request->headers->get('X-Webhook-Signature')
+            );
+            return new JsonResponse($result['body'], $result['status']);
+        } catch (\Throwable $error) {
+            // Log through the host app's logger as appropriate.
+            return new JsonResponse(['status' => 'unavailable'], 503);
+        }
     }
 }
 ```
 
-Inject the signing secret and register your route through the Symfony application. Set a request size limit at the HTTP server. The built-in `Receiver` is strictly a **demo**; for real providers, verify their signatures before calling `Inbox::receive()`.
+The host application must have attribute routing and controller services enabled (as in a typical Symfony project). Supply the scalar secret via its existing configuration; for example, merge this service definition into `config/services.yaml` (retain your existing service defaults, autowiring and bindings):
 
-**Inside a Symfony console command/service** with injected `Connection $db` and an app-implemented `EventHandler $handler`:
-
-```php
-use Ktulchu\WebhookInbox\Adapter\DoctrineAdapter;
-use Ktulchu\WebhookInbox\Worker;
-
-$worker = new Worker(new DoctrineAdapter($db), $handler);
-$worker->runOnce();
+```yaml
+services:
+    App\Controller\DemoWebhookController:
+        arguments:
+            $webhookSecret: '%env(WEBHOOK_SECRET)%'
 ```
 
-Both transaction management and SQL execution go through DBAL. `DoctrineAdapter::inTransaction()` checks DBAL's transaction nesting level, **not arbitrary native-driver transactions started behind its back**. Bypassing DBAL's transaction API is **unsupported** and can defeat Inbox's fail-fast transaction safety. Always use the same DBAL connection for inbox and business writes.
+The `WEBHOOK_SECRET` variable is a **demo signing secret**, not the signing format of any real provider. Configure HTTPS and a request-size limit at your web server; `Request::getContent()` reads the HTTP body before the demo Receiver checks its 256 KiB size limit. A real integration must first verify **its provider's native signature** and then call `Inbox::receive()` directly.
+
+**`src/Command/InboxOnceCommand.php`** — a one-shot worker command using your application's own handler:
+
+```php
+<?php
+declare(strict_types=1);
+
+namespace App\Command;
+
+use App\Webhook\PaymentHandler; // Implement EventHandler in your application.
+use Doctrine\DBAL\Connection;
+use Ktulchu\WebhookInbox\Adapter\DoctrineAdapter;
+use Ktulchu\WebhookInbox\Worker;
+use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\OutputInterface;
+
+#[AsCommand(name: 'app:webhook-inbox:once')]
+final class InboxOnceCommand extends Command
+{
+    public function __construct(
+        private readonly Connection $db,
+        private readonly PaymentHandler $handler,
+    ) {
+        parent::__construct();
+    }
+
+    protected function execute(InputInterface $input, OutputInterface $output): int
+    {
+        (new Worker(new DoctrineAdapter($this->db), $this->handler))->runOnce();
+        return Command::SUCCESS;
+    }
+}
+```
+
+Implement `App\Webhook\PaymentHandler` with `EventHandler::handle(ConnectionInterface $db, array $event)` as in the plain PHP example, and register it as a Symfony service. Run `php bin/console app:webhook-inbox:once` after receiving an event, or schedule repeated runs under your supervisor.
+
+Both SQL execution and transaction management stay inside DBAL. `DoctrineAdapter::inTransaction()` detects DBAL-managed transactions, **not necessarily transactions started directly via its underlying native driver**. Bypassing the DBAL transaction API is **unsupported**; it can defeat the admission guard and break transaction bookkeeping. Inbox and the handler must use the same physical PostgreSQL connection.
 
 ## 6. Custom database adapters
 
