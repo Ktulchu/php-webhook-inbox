@@ -36,6 +36,12 @@ jobs:
           tools: composer:v2
       - run: composer validate --strict
       - run: composer install --no-interaction --prefer-dist --no-progress
+      # Temporary lock export for initial reproducible package baseline; removed immediately after capture.
+      - name: Export resolved lock manifest
+        run: |
+          echo 'COMPOSER_LOCK_BEGIN'
+          cat composer.lock
+          echo 'COMPOSER_LOCK_END'
       - run: composer audit --no-interaction
       - run: php bin/migrate.php
       - run: composer test
