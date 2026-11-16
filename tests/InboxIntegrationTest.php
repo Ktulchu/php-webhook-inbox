@@ -60,7 +60,7 @@ final class InboxIntegrationTest extends TestCase
 
         self::assertTrue($worker->runOnce());
         self::assertFalse($worker->runOnce());
-        self::assertSame('done', $this->status('success'));
+        self::assertSame('done', $this->eventStatus('success'));
         self::assertSame(1, (int) $this->db->query('SELECT count(*) FROM demo_effects')->fetchColumn());
         self::assertSame(75, (int) $this->db->query('SELECT amount FROM demo_effects')->fetchColumn());
     }
@@ -95,12 +95,12 @@ final class InboxIntegrationTest extends TestCase
 
         self::assertTrue((new Worker($this->db, $handler))->runOnce());
         self::assertSame(0, (int) $this->db->query('SELECT count(*) FROM demo_effects')->fetchColumn());
-        self::assertSame('pending', $this->status('retry'));
+        self::assertSame('pending', $this->eventStatus('retry'));
         self::assertSame(1, (int) $this->db->query('SELECT attempts FROM inbox_events')->fetchColumn());
 
         $this->db->exec("UPDATE inbox_events SET available_at = clock_timestamp() - interval '1 second'");
         self::assertTrue((new Worker($this->db, new DemoHandler()))->runOnce());
-        self::assertSame('done', $this->status('retry'));
+        self::assertSame('done', $this->eventStatus('retry'));
         self::assertSame(1, (int) $this->db->query('SELECT count(*) FROM demo_effects')->fetchColumn());
     }
 
@@ -114,7 +114,7 @@ final class InboxIntegrationTest extends TestCase
             $this->db->exec("UPDATE inbox_events SET available_at = clock_timestamp() - interval '1 second'");
         }
 
-        self::assertSame('failed', $this->status('bad'));
+        self::assertSame('failed', $this->eventStatus('bad'));
         self::assertFalse($worker->runOnce());
         self::assertSame(3, (int) $this->db->query('SELECT attempts FROM inbox_events')->fetchColumn());
         self::assertSame(0, (int) $this->db->query('SELECT count(*) FROM demo_effects')->fetchColumn());
@@ -126,7 +126,7 @@ final class InboxIntegrationTest extends TestCase
         self::assertSame('accepted', (new Inbox($this->db))->receive('demo', $id, $body));
     }
 
-    private function status(string $id): string
+    private function eventStatus(string $id): string
     {
         $stmt = $this->db->prepare('SELECT status FROM inbox_events WHERE event_id = :id');
         $stmt->execute(['id' => $id]);
