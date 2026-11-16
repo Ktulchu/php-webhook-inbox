@@ -1,5 +1,5 @@
--- This example intentionally supports a single trusted provider ("demo").
--- Keep provider event IDs scoped to the authenticated source.
+-- Multiple trusted providers are supported: event IDs are scoped to a server-authenticated source.
+-- Never derive the source from an unauthenticated HTTP header.
 CREATE TABLE IF NOT EXISTS inbox_events (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     source VARCHAR(64) NOT NULL,
