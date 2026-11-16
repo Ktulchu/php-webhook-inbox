@@ -1,13 +1,17 @@
 {
   "name": "ktulchu/php-webhook-inbox",
-  "description": "Reliable transactional webhook inbox for PHP and PostgreSQL",
-  "type": "project",
+  "description": "Framework-independent transactional PostgreSQL webhook inbox for PHP",
+  "type": "library",
   "license": "MIT",
   "require": {
     "php": "^8.3",
-    "ext-json": "*",
-    "ext-pdo": "*",
-    "ext-pdo_pgsql": "*"
+    "ext-json": "*"
+  },
+  "suggest": {
+    "ext-pdo": "Required by PdoAdapter and the bundled demo",
+    "ext-pdo_pgsql": "Required by PdoAdapter with PostgreSQL",
+    "yiisoft/yii2": "Required only for Yii2Adapter",
+    "doctrine/dbal": "Required only for DoctrineAdapter (DBAL 4)"
   },
   "require-dev": {
     "phpunit/phpunit": "^11.5",
@@ -20,7 +24,8 @@
   },
   "autoload-dev": {
     "psr-4": {
-      "Ktulchu\\WebhookInbox\\Tests\\": "tests/"
+      "Ktulchu\\WebhookInbox\\Tests\\": "tests/",
+      "Ktulchu\\WebhookInbox\\Example\\": "examples/basic/"
     }
   },
   "scripts": {

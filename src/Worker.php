@@ -3,13 +3,13 @@ declare(strict_types=1);
 
 namespace Ktulchu\WebhookInbox;
 
-use PDO;
+use LogicException;
 use Throwable;
 
 final class Worker
 {
     public function __construct(
-        private readonly PDO $db,
+        private readonly ConnectionInterface $db,
         private readonly EventHandler $handler,
         private readonly int $maxAttempts = 3,
     ) {
@@ -18,25 +18,25 @@ final class Worker
         }
     }
 
-    /**
-     * Handles at most one event. A crash before COMMIT rolls back both the
-     * business effect and the processing acknowledgment.
-     */
+    /** Handles at most one event. All writes and acknowledgment share one transaction. */
     public function runOnce(): bool
     {
+        if ($this->db->inTransaction()) {
+            throw new LogicException('A worker cannot run inside an existing transaction');
+        }
+
         $this->db->beginTransaction();
 
         try {
-            $claim = $this->db->query(
+            $row = $this->db->fetchOne(
                 "SELECT id, source, event_id, payload::text AS payload, attempts
                  FROM inbox_events
                  WHERE status = 'pending' AND available_at <= clock_timestamp()
                  ORDER BY available_at, id
                  LIMIT 1 FOR UPDATE SKIP LOCKED"
             );
-            $row = $claim->fetch();
 
-            if ($row === false) {
+            if ($row === null) {
                 $this->db->commit();
                 return false;
             }
@@ -50,43 +50,38 @@ final class Worker
                 'attempts' => (int) $row['attempts'],
             ];
 
-            // A handler failure must undo any partial business writes, while
-            // retaining retry bookkeeping in the enclosing transaction.
-            $this->db->exec('SAVEPOINT before_handler');
+            $this->db->execute('SAVEPOINT before_handler');
             try {
                 $this->handler->handle($this->db, $event);
-                $update = $this->db->prepare(
+                $this->db->execute(
                     "UPDATE inbox_events
                      SET status = 'done', attempts = attempts + 1,
                          processed_at = clock_timestamp(), last_error = NULL
-                     WHERE id = :id"
+                     WHERE id = :id",
+                    ['id' => $event['id']]
                 );
-                $update->execute(['id' => $event['id']]);
             } catch (Throwable $error) {
-                $this->db->exec('ROLLBACK TO SAVEPOINT before_handler');
-
-                // SQL errors from business statements can be permanent: count
-                // them too. If the DB is unreachable, retry bookkeeping will
-                // fail and the outer transaction is rolled back instead.
+                // This must succeed even after a PostgreSQL statement error.
+                $this->db->execute('ROLLBACK TO SAVEPOINT before_handler');
 
                 $attempt = $event['attempts'] + 1;
                 $failed = $attempt >= $this->maxAttempts;
                 $delay = min(3600, 2 ** min($attempt, 11));
 
-                $update = $this->db->prepare(
+                $this->db->execute(
                     "UPDATE inbox_events
                      SET status = :status, attempts = :attempts,
                          available_at = clock_timestamp() + make_interval(secs => CAST(:delay AS integer)),
                          last_error = :last_error
-                     WHERE id = :id"
+                     WHERE id = :id",
+                    [
+                        'status' => $failed ? 'failed' : 'pending',
+                        'attempts' => $attempt,
+                        'delay' => $failed ? 0 : $delay,
+                        'last_error' => substr($error->getMessage(), 0, 1000),
+                        'id' => $event['id'],
+                    ]
                 );
-                $update->execute([
-                    'status' => $failed ? 'failed' : 'pending',
-                    'attempts' => $attempt,
-                    'delay' => $failed ? 0 : $delay,
-                    'last_error' => substr($error->getMessage(), 0, 1000),
-                    'id' => $event['id'],
-                ]);
             }
 
             $this->db->commit();

@@ -11,7 +11,7 @@ permissions:
 jobs:
   tests:
     runs-on: ubuntu-latest
-    services:
+    services: &postgres_service
       postgres:
         image: postgres:16-alpine
         env:
@@ -25,13 +25,16 @@ jobs:
           --health-interval 2s
           --health-timeout 5s
           --health-retries 15
-    env:
+    env: &db_env
       DB_HOST: 127.0.0.1
       DB_NAME: webhooks
       DB_USER: webhooks
       DB_PASSWORD: test_password
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git diff --check origin/main...HEAD
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
@@ -41,9 +44,51 @@ jobs:
       - run: composer validate --strict
       - run: composer install --no-interaction --prefer-dist --no-progress
       - run: composer audit --no-interaction
-      - run: php bin/migrate.php
+      - run: php examples/basic/bin/migrate.php
       - run: composer test
       - run: composer analyse
+
+  framework-adapters:
+    runs-on: ubuntu-latest
+    services: *postgres_service
+    env: *db_env
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_pgsql,mbstring,dom,xml
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Install optional frameworks for their real adapter tests
+        run: |
+          composer config --no-interaction repositories.asset-packagist composer https://asset-packagist.org
+          composer config --no-interaction allow-plugins.yiisoft/yii2-composer true
+          composer require --dev --no-interaction --no-progress "yiisoft/yii2:^2.0.53" "doctrine/dbal:^4.3"
+      - run: php examples/basic/bin/migrate.php
+      - run: vendor/bin/phpunit tests/AdapterIntegrationTest.php
+      - run: vendor/bin/phpstan analyse --configuration phpstan-adapters.neon --no-progress
+
+  consumer:
+    runs-on: ubuntu-latest
+    services: *postgres_service
+    env: *db_env
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_pgsql
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: php examples/basic/bin/migrate.php
+      - name: Install from an independent path consumer
+        working-directory: tests/fixtures/consumer
+        run: |
+          composer install --no-interaction --prefer-dist --no-progress
+          php verify.php
 
   docker-smoke:
     runs-on: ubuntu-latest
@@ -63,7 +108,6 @@ jobs:
           SIG=$(printf '%s.%s' "$STAMP" "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" -hex | awk '{print $NF}')
           ready=0
           for i in {1..15}; do
-            # Any HTTP response (404 expected) means the demo server is reachable.
             if curl --silent --output /dev/null --max-time 2 http://127.0.0.1:8080/not-found; then
               ready=1
               break
@@ -81,7 +125,7 @@ jobs:
             -H "X-Webhook-Timestamp: $STAMP" \
             -H "X-Webhook-Signature: sha256=$SIG" --data-binary "$BODY")
           test "$CODE" = '200'
-          docker compose run --rm app php bin/worker.php --once
+          docker compose run --rm app php examples/basic/bin/worker.php --once
           COUNT=$(docker compose exec -T db psql -U webhooks -d webhooks -At \
             -c "SELECT count(*) FROM demo_effects WHERE event_id='smoke-1' AND amount=19")
           test "$COUNT" = '1'

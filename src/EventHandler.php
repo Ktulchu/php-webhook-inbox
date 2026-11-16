@@ -3,16 +3,14 @@ declare(strict_types=1);
 
 namespace Ktulchu\WebhookInbox;
 
-use PDO;
-
 interface EventHandler
 {
     /**
-     * Must only perform DB operations through $db in the worker transaction.
-     * External side effects cannot share the transaction's atomicity.
-     * Do not begin/commit/rollback transactions or execute transaction-control SQL.
+     * Only use $db for database-local business writes.
+     * Never open a separate connection or manipulate transactions from here.
+     * Remote side effects are not atomic with the inbox acknowledgment.
      *
      * @param array{id: int, source: string, event_id: string, payload: string, attempts: int} $event
      */
-    public function handle(PDO $db, array $event): void;
+    public function handle(ConnectionInterface $db, array $event): void;
 }

@@ -1,0 +1,23 @@
+{
+  "name": "ktulchu/webhook-inbox-consumer-check",
+  "type": "project",
+  "repositories": [
+    {
+      "type": "path",
+      "url": "../../../",
+      "options": {
+        "symlink": false,
+        "versions": {
+          "ktulchu/php-webhook-inbox": "0.2.0"
+        }
+      }
+    }
+  ],
+  "require": {
+    "php": "^8.3",
+    "ktulchu/php-webhook-inbox": "^0.2"
+  },
+  "config": {
+    "sort-packages": true
+  }
+}

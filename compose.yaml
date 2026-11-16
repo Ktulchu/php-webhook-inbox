@@ -14,7 +14,7 @@ services:
 
   migrate:
     build: .
-    command: ["php", "bin/migrate.php"]
+    command: ["php", "examples/basic/bin/migrate.php"]
     environment: &db_env
       DB_HOST: db
       DB_NAME: webhooks
@@ -39,7 +39,7 @@ services:
   worker:
     build: .
     profiles: ["worker"]
-    command: ["php", "bin/worker.php"]
+    command: ["php", "examples/basic/bin/worker.php"]
     environment: *db_env
     depends_on:
       migrate:

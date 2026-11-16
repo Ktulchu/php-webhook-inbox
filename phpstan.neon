@@ -3,3 +3,9 @@ parameters:
     paths:
         - src
         - tests
+        - examples/basic
+    excludePaths:
+        analyse:
+            - src/Adapter/Yii2Adapter.php
+            - src/Adapter/DoctrineAdapter.php
+            - tests/AdapterIntegrationTest.php
