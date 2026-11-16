@@ -38,3 +38,50 @@ jobs:
       - run: php bin/migrate.php
       - run: composer test
       - run: composer analyse
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure local demo
+        run: cp .env.example .env
+      - name: Build and start stack
+        run: docker compose up --build -d
+      - name: Verify signed delivery, deduplication and worker effect
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .env
+          BODY='{"id":"smoke-1","amount":19}'
+          STAMP=$(date +%s)
+          SIG=$(printf '%s.%s' "$STAMP" "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" -hex | awk '{print $NF}')
+          for i in {1..15}; do
+            if curl -fsS http://127.0.0.1:8080/not-found >/dev/null 2>&1; then
+              break
+            fi
+            # Receiver returns 404 once started; curl without -f treats this as reachable.
+            if curl -sS --max-time 2 http://127.0.0.1:8080/not-found >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          CODE=$(curl -sS -o /tmp/webhook-response -w '%{http_code}' \
+            -X POST http://127.0.0.1:8080/webhook \
+            -H "X-Webhook-Timestamp: $STAMP" \
+            -H "X-Webhook-Signature: sha256=$SIG" --data-binary "$BODY")
+          test "$CODE" = '202'
+          CODE=$(curl -sS -o /tmp/webhook-response -w '%{http_code}' \
+            -X POST http://127.0.0.1:8080/webhook \
+            -H "X-Webhook-Timestamp: $STAMP" \
+            -H "X-Webhook-Signature: sha256=$SIG" --data-binary "$BODY")
+          test "$CODE" = '200'
+          docker compose run --rm app php bin/worker.php --once
+          COUNT=$(docker compose exec -T db psql -U webhooks -d webhooks -At \
+            -c "SELECT count(*) FROM demo_effects WHERE event_id='smoke-1' AND amount=19")
+          test "$COUNT" = '1'
+      - name: Show diagnostics on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
