@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: webhooks
+      POSTGRES_USER: webhooks
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Copy .env.example to .env}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webhooks -d webhooks"]
+      interval: 2s
+      retries: 20
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  migrate:
+    build: .
+    command: ["php", "bin/migrate.php"]
+    environment: &db_env
+      DB_HOST: db
+      DB_NAME: webhooks
+      DB_USER: webhooks
+      DB_PASSWORD: ${DB_PASSWORD:?Copy .env.example to .env}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      <<: *db_env
+      WEBHOOK_SOURCE: demo
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:?Copy .env.example to .env}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    build: .
+    profiles: ["worker"]
+    command: ["php", "bin/worker.php"]
+    environment: *db_env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pg_data:
