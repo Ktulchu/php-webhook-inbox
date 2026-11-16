@@ -296,6 +296,8 @@ final class AdapterIntegrationTest extends TestCase
             'password' => $yii->password,
             'charset' => 'utf8',
         ]];
+        // Isolated PHPUnit run has no Yii::$app service locator.
+        $yii->serverStatusCache = null;
         $yii->enableQueryCache = true;
         $yii->queryCache = new ArrayCache();
 
