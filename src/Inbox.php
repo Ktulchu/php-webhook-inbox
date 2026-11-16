@@ -13,6 +13,10 @@ final class Inbox
     /** @return 'accepted'|'duplicate'|'conflict' */
     public function receive(string $source, string $eventId, string $rawBody): string
     {
+        if ($this->db->inTransaction()) {
+            throw new \LogicException('Inbox cannot acknowledge an event inside an existing transaction');
+        }
+
         $hash = hash('sha256', $rawBody);
 
         $inserted = $this->db->fetchOne(
