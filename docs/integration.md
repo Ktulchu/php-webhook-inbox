@@ -12,7 +12,7 @@ use Ktulchu\WebhookInbox\Inbox;
 use Ktulchu\WebhookInbox\Worker;
 
 $pdo = new PDO($dsn, $user, $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-$connection = new PdoAdapter($pdo);
+$connection = new PdoAdapter($pdo); // requires PDO::ERRMODE_EXCEPTION; never changes PDO settings
 $inbox = new Inbox($connection);
 $worker = new Worker($connection, $yourHandler);
 ```

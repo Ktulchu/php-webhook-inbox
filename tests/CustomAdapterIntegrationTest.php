@@ -13,6 +13,15 @@ use PHPUnit\Framework\TestCase;
 
 final class CustomAdapterIntegrationTest extends TestCase
 {
+    public function testPdoAdapterDoesNotMutateTheCallersErrorMode(): void
+    {
+        $pdo = Database::connect();
+        $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_SILENT);
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('ERRMODE_EXCEPTION');
+        new PdoAdapter($pdo);
+    }
+
     public function testApplicationCanSupplyItsOwnConnectionImplementation(): void
     {
         $pdo = Database::connect();

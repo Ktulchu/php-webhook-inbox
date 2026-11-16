@@ -15,7 +15,9 @@ final class PdoAdapter implements ConnectionInterface
         if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) !== 'pgsql') {
             throw new \InvalidArgumentException('Only PostgreSQL is supported');
         }
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        if ($pdo->getAttribute(PDO::ATTR_ERRMODE) !== PDO::ERRMODE_EXCEPTION) {
+            throw new \InvalidArgumentException('PDO must be configured with ERRMODE_EXCEPTION');
+        }
     }
 
     public function inTransaction(): bool
