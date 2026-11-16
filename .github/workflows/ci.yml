@@ -34,7 +34,9 @@ jobs:
           extensions: pdo_pgsql
           coverage: none
           tools: composer:v2
+      - run: composer validate --strict
       - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: composer audit --no-interaction
       - run: php bin/migrate.php
       - run: composer test
       - run: composer analyse

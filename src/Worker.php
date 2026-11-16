@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Ktulchu\WebhookInbox;
 
 use PDO;
-use PDOException;
 use Throwable;
 
 final class Worker
@@ -66,10 +65,9 @@ final class Worker
             } catch (Throwable $error) {
                 $this->db->exec('ROLLBACK TO SAVEPOINT before_handler');
 
-                // Infrastructure errors aren't failed business attempts.
-                if ($error instanceof PDOException) {
-                    throw $error;
-                }
+                // SQL errors from business statements can be permanent: count
+                // them too. If the DB is unreachable, retry bookkeeping will
+                // fail and the outer transaction is rolled back instead.
 
                 $attempt = $event['attempts'] + 1;
                 $failed = $attempt >= $this->maxAttempts;

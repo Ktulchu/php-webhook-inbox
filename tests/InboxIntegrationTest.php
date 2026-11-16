@@ -120,6 +120,57 @@ final class InboxIntegrationTest extends TestCase
         self::assertSame(0, (int) $this->db->query('SELECT count(*) FROM demo_effects')->fetchColumn());
     }
 
+    public function testSqlErrorsFromHandlerCountTowardFailedAttempts(): void
+    {
+        $this->ingest('sql-error', 19);
+        $badHandler = new class implements EventHandler {
+            public function handle(PDO $db, array $event): void
+            {
+                (new DemoHandler())->handle($db, $event);
+                // Constraint/SQL statement errors abort a PostgreSQL transaction
+                // unless the worker rolls back to its SAVEPOINT.
+                $db->exec("INSERT INTO demo_effects (source, event_id, amount)
+                    VALUES ('demo', 'invalid', 'not-an-integer')");
+            }
+        };
+        $worker = new Worker($this->db, $badHandler, 2);
+
+        self::assertTrue($worker->runOnce());
+        self::assertSame('pending', $this->eventStatus('sql-error'));
+        self::assertSame(1, (int) $this->db->query('SELECT attempts FROM inbox_events')->fetchColumn());
+        self::assertSame(0, (int) $this->db->query('SELECT count(*) FROM demo_effects')->fetchColumn());
+        $this->db->exec("UPDATE inbox_events SET available_at = clock_timestamp() - interval '1 second'");
+        self::assertTrue($worker->runOnce());
+        self::assertSame('failed', $this->eventStatus('sql-error'));
+        self::assertSame(2, (int) $this->db->query('SELECT attempts FROM inbox_events')->fetchColumn());
+        self::assertNotSame('', (string) $this->db->query('SELECT last_error FROM inbox_events')->fetchColumn());
+        self::assertSame(0, (int) $this->db->query('SELECT count(*) FROM demo_effects')->fetchColumn());
+    }
+
+    public function testProviderScopesEventIds(): void
+    {
+        $body = '{"id":"shared","amount":7}';
+        self::assertSame('accepted', (new Inbox($this->db))->receive('provider-a', 'shared', $body));
+        self::assertSame('accepted', (new Inbox($this->db))->receive('provider-b', 'shared', $body));
+        self::assertSame(2, (int) $this->db->query('SELECT count(*) FROM inbox_events')->fetchColumn());
+    }
+
+    public function testRejectsFutureTimestampAndInvalidEventIds(): void
+    {
+        $receiver = new Receiver(new Inbox($this->db), 'demo', 'a-signing-secret-long-enough');
+        $ts = (string) (time() + 301);
+        $body = '{"id":"future","amount":5}';
+        $signature = 'sha256=' . hash_hmac('sha256', $ts . '.' . $body, 'a-signing-secret-long-enough');
+        self::assertSame(401, $receiver->handle('POST', $body, $ts, $signature)['status']);
+
+        $ts = (string) time();
+        foreach (['{"id":42,"amount":5}', '{"id":"a space","amount":5}', '[1,2,3]'] as $invalid) {
+            $signature = 'sha256=' . hash_hmac('sha256', $ts . '.' . $invalid, 'a-signing-secret-long-enough');
+            self::assertSame(422, $receiver->handle('POST', $invalid, $ts, $signature)['status']);
+        }
+        self::assertSame(0, (int) $this->db->query('SELECT count(*) FROM inbox_events')->fetchColumn());
+    }
+
     private function ingest(string $id, int $amount): void
     {
         $body = json_encode(['id' => $id, 'amount' => $amount], JSON_THROW_ON_ERROR);

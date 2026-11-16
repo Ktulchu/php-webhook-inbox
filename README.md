@@ -71,7 +71,7 @@ provider -- signed POST --> receiver -- INSERT / UNIQUE --> inbox_events
 - **Verification** uses `HMAC-SHA256(timestamp . "." . rawBody)`; timestamp freshness is ±300 seconds. This is a demo protocol, **not** a drop-in adapter for Stripe, GitHub or other providers with different signature formats. Protect the secret and require HTTPS in deployment.
 - **Ingress** inserts original JSON into PostgreSQL JSONB and stores a SHA-256 hash of the exact raw bytes. Provider-scoped `UNIQUE (source, event_id)` gates duplicates; same ID with different exact body bytes is a conflict. A 202 is returned only after the implicit INSERT transaction commits.
 - **Processing** claims one ready row using `FOR UPDATE SKIP LOCKED`, keeps its row lock, executes the handler and marks `done` before **one** COMMIT. A dead process rolls back both effects and acknowledgment.
-- **Failure** rolls back the handler to a savepoint while retaining the retry count and last error; default retry delays are 2, 4 seconds and then terminal `failed` on the third attempt. Infrastructure/DB failures abort the entire transaction instead.
+- **Failure** rolls back the handler to a savepoint while retaining the retry count and last error; default retry delays are 2, 4 seconds and then terminal `failed` on the third attempt. SQL errors thrown by a handler also count as failed attempts. If the DB connection itself fails, recording retry metadata is impossible: the transaction aborts and the event becomes available when the connection is released.
 - **Diagnostics** retain events and failure details. This MVP does not implement automatic redrive of `failed` rows or retention cleanup; these are operator decisions.
 
 ## Guarantees and deliberate non-guarantees
@@ -104,3 +104,15 @@ This is **at-least-once processing** with one committed effect for the included 
 - [ADR 0002: Transaction boundary](docs/adr/0002-transaction-boundary.md)
 
 MIT license.
+
+## Publication / deployment warning
+
+This repository is a **reference implementation and local demo**, not a production-ready
+Stripe/GitHub webhook adapter. Before deployment, use a provider-specific signature
+protocol, HTTPS, random secrets with rotation, access controls, production HTTP server,
+database backups, bounded handler execution time, structured operational logs and
+monitoring of pending/failed events. Do not use sample credentials on any public host.
+
+The request body is stored in plaintext JSONB in the example inbox. Do not feed real
+customer personal data or secrets into the demo database without implementing
+appropriate retention, encryption, access restrictions and deletion policies.
