@@ -1,26 +1,32 @@
 # Installation and integration
 
-This guide covers the **unreleased v0.2 branch** in [PR #2](https://github.com/Ktulchu/php-webhook-inbox/pull/2) (`feat/composer-package-v02`). It documents the real API: `Inbox`, `Receiver`, `Worker`, `EventHandler`, `ConnectionInterface`, and the optional PDO/Yii2/Doctrine adapters.
+This guide documents the **v0.2.0 GitHub release** and its real API: `Inbox`, `Receiver`, `Worker`, `EventHandler`, `ConnectionInterface`, and optional PDO/Yii2/Doctrine adapters.
 
-Requirements: **PHP 8.3+**, **PostgreSQL 16+**, Composer 2. The host application owns its connection and migrations. The package is **not published on Packagist**.
+Requirements: **PHP 8.3+**, **PostgreSQL 16+**, Composer 2. The host application owns its connection and migrations. **Packagist availability requires registration by the maintainer**; use the GitHub VCS fallback until the [package listing](https://packagist.org/packages/ktulchu/php-webhook-inbox) is active.
 
 ## 1. Install in an application
 
-### GitHub VCS (unreleased v0.2 branch)
+### Packagist (once registered)
 
-Run inside **your application**:
+Once [ktulchu/php-webhook-inbox](https://packagist.org/packages/ktulchu/php-webhook-inbox) is listed with tag `v0.2.0`, run inside your application:
+
+```bash
+composer require 'ktulchu/php-webhook-inbox:^0.2'
+```
+
+Until the maintainer registers the package, use the **tagged GitHub release directly**:
 
 ```bash
 composer config repositories.webhook-inbox vcs https://github.com/Ktulchu/php-webhook-inbox.git
-composer require 'ktulchu/php-webhook-inbox:dev-feat/composer-package-v02'
+composer require 'ktulchu/php-webhook-inbox:^0.2'
 ```
 
-Do not use `composer require ktulchu/php-webhook-inbox` without a version/repository yet: v0.2 is neither merged into `main` nor on Packagist. Commit the **host application's** generated `composer.lock` to fix the tested revision.
+Commit the host application's `composer.lock` to pin the actual revision. These instructions select the `v0.2.0` tag, not the previous PR development branch.
 
 ### Local checkout (verified by the independent consumer in CI)
 
 ```bash
-git clone --branch feat/composer-package-v02 https://github.com/Ktulchu/php-webhook-inbox.git
+git clone --branch v0.2.0 https://github.com/Ktulchu/php-webhook-inbox.git
 ```
 
 In the **consuming application's** `composer.json`, alongside its existing keys (adjust the path):
@@ -40,7 +46,7 @@ In the **consuming application's** `composer.json`, alongside its existing keys 
 }
 ```
 
-Then run `composer install` in a new consuming project or `composer update ktulchu/php-webhook-inbox` in an existing one. `0.2.0` is a **local-only version override**, not a released version. See [the CI consumer](../tests/fixtures/consumer/composer.json). After a real Packagist release, remove the override and use its actual published tag.
+Then run `composer install` in a new consuming project or `composer update ktulchu/php-webhook-inbox` in an existing one. `0.2.0` here is a **local-only version override**, separate from the released tag. See [the CI consumer](../tests/fixtures/consumer/composer.json). After the package appears on Packagist, remove the path override and install the public `^0.2` release.
 
 Your application needs the DB driver it uses: `ext-pdo` + `ext-pdo_pgsql` for `PdoAdapter`, an existing `yii\db\Connection` for `Yii2Adapter`, or an existing **Doctrine DBAL 4** `Connection` for `DoctrineAdapter`. Neither framework is required by the library core.
 
@@ -231,7 +237,7 @@ Expected: one processed row (`demo`, `evt-001`, `125`) and inbox status `done`. 
 
 ### Windows PowerShell request to the bundled Docker demo
 
-After cloning the **v0.2 branch**, running `Copy-Item .env.example .env` and `docker compose up --build -d`, run this on Windows PowerShell 5.1+ (no OpenSSL needed):
+After cloning the **v0.2.0 tag**, running `Copy-Item .env.example .env` and `docker compose up --build -d`, run this on Windows PowerShell 5.1+ (no OpenSSL needed):
 
 ```powershell
 $secret = 'replace-with-a-random-secret-of-at-least-32-bytes'

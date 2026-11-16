@@ -4,7 +4,7 @@
 
 **Transactional PostgreSQL webhook inbox for PHP 8.3+, without a framework dependency.** Admit each authenticated event once per provider, then let concurrent workers apply database-local effects atomically using `FOR UPDATE SKIP LOCKED`, savepoints and bounded retries.
 
-**Release status:** v0.2 is currently **unreleased and lives in [PR #2](https://github.com/Ktulchu/php-webhook-inbox/pull/2)** on `feat/composer-package-v02`, not on `main`. It is **not available through Packagist**. The instructions below intentionally select the PR branch. Do not run a bare `composer require ktulchu/php-webhook-inbox` expecting v0.2 yet.
+**Version:** `v0.2.0` is the first tagged GitHub release. To install from Packagist, the maintainer must first register the repository at [packagist.org](https://packagist.org/); until the [package listing](https://packagist.org/packages/ktulchu/php-webhook-inbox) is available, use the GitHub VCS repository instructions below. This is an early release, not a claim of security-audited production readiness.
 
 ## Requirements
 
@@ -16,23 +16,29 @@
 
 ## Install v0.2 in an existing application
 
-### Option A: GitHub VCS repository (no local checkout)
+### Option A: Packagist (after the package is registered)
 
-Run these **inside your application's project** (not in the library checkout):
+Once the [Packagist package listing](https://packagist.org/packages/ktulchu/php-webhook-inbox) exists and includes tag `v0.2.0`, run inside **your application**:
+
+```bash
+composer require 'ktulchu/php-webhook-inbox:^0.2'
+```
+
+**If the package is not listed yet**, use the GitHub VCS repository instead:
 
 ```bash
 composer config repositories.webhook-inbox vcs https://github.com/Ktulchu/php-webhook-inbox.git
-composer require 'ktulchu/php-webhook-inbox:dev-feat/composer-package-v02'
+composer require 'ktulchu/php-webhook-inbox:^0.2'
 ```
 
-This resolves the **unreleased development branch**, not a versioned stable release. Commit the resulting application `composer.lock` to pin the revision. Your app must already have the driver/framework extensions it needs. The branch reference is expected to change until PR #2 is merged.
+Both commands select the **tagged v0.2.0 release**, not the old development branch. Your application must already have its chosen database driver and framework. Commit the application's `composer.lock`.
 
 ### Option B: Local Composer `path` repository (tested by CI)
 
-Clone this package **next to your application**:
+Clone the tagged release **next to your application**:
 
 ```bash
-git clone --branch feat/composer-package-v02 https://github.com/Ktulchu/php-webhook-inbox.git
+git clone --branch v0.2.0 https://github.com/Ktulchu/php-webhook-inbox.git
 ```
 
 In the **consuming application's** `composer.json` (adjust the relative path to suit your directories), add:
@@ -56,7 +62,7 @@ In the **consuming application's** `composer.json` (adjust the relative path to 
 
 These are the relevant fields of `composer.json`: **merge** them with your existing `require` and `repositories`, do not replace the entire application configuration. Run `composer install` for a new consumer, or `composer update ktulchu/php-webhook-inbox` in an existing project.
 
-**Important:** `0.2.0` here is only a **local path-repository version override**, exactly as in [our tested consumer](tests/fixtures/consumer/composer.json). It is **not a published tag or Packagist version**. Remove the override when switching to a real release later.
+**Important:** `0.2.0` here is a **local path-repository version override** (as in [our tested consumer](tests/fixtures/consumer/composer.json)), not a Packagist publishing step. Remove the path repository and override when switching to the Packagist release.
 
 ## Create the database table
 
@@ -125,7 +131,7 @@ Here `processed_webhooks` is an **example business table to create yourself**. S
 This is a **separate local demonstration**, not an instruction to deploy PHP's built-in server to production. Requires Docker Compose and OpenSSL for the sample signed request.
 
 ```bash
-git clone --branch feat/composer-package-v02 https://github.com/Ktulchu/php-webhook-inbox.git
+git clone --branch v0.2.0 https://github.com/Ktulchu/php-webhook-inbox.git
 cd php-webhook-inbox
 cp .env.example .env
 docker compose up --build -d
@@ -171,4 +177,4 @@ docker compose --profile worker up -d --scale worker=3 worker
 
 [Detailed PHP / Yii2 / Symfony examples](docs/integration.md) · [Architectural decisions](docs/adr/0003-connection-contract.md) · [Security](SECURITY.md) · MIT License.
 
-**Current CI** covers PostgreSQL integration tests, optional-framework contract tests, a separate Composer consumer, PHPStan, Composer audit and Docker smoke testing.
+**CI** covers PostgreSQL integration tests, optional-framework contract tests, a separate Composer consumer, PHPStan, Composer audit and Docker smoke testing. See [v0.2.0 release notes](docs/releases/v0.2.0.md).
