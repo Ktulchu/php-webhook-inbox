@@ -11,6 +11,7 @@ use Ktulchu\WebhookInbox\ConnectionInterface;
 use Ktulchu\WebhookInbox\EventHandler;
 use Ktulchu\WebhookInbox\Example\Database;
 use Ktulchu\WebhookInbox\Inbox;
+use Ktulchu\WebhookInbox\Receiver;
 use Ktulchu\WebhookInbox\Worker;
 use LogicException;
 use PDO;
@@ -195,6 +196,92 @@ final class AdapterIntegrationTest extends TestCase
         self::assertSame(1, (int) $db->fetchOne(
             'SELECT count(*) AS count FROM demo_effects'
         )['count']);
+    }
+
+    #[DataProvider('adapters')]
+    public function testInboxRejectsExternalTransactionBeforeInsertWithoutChangingIt(string $kind): void
+    {
+        $db = $this->adapter($kind);
+        $this->reset();
+        $inbox = new Inbox($db);
+        $body = '{"id":"outer-transaction","amount":1}';
+
+        $db->beginTransaction();
+        try {
+            try {
+                $inbox->receive('demo', 'outer-transaction', $body);
+                self::fail('Inbox must not return accepted inside a caller transaction');
+            } catch (LogicException $e) {
+                self::assertStringContainsString('existing transaction', $e->getMessage());
+            }
+
+            self::assertTrue($db->inTransaction(), 'Inbox must not close the caller transaction');
+            self::assertSame(0, (int) $db->fetchOne(
+                'SELECT count(*) AS count FROM inbox_events'
+            )['count'], 'Reject admission before writing to inbox_events');
+
+            // The external transaction is still usable and remains caller-owned.
+            $db->execute(
+                "INSERT INTO demo_effects (source,event_id,amount) VALUES ('caller','uncommitted',1)"
+            );
+            self::assertTrue($db->inTransaction());
+        } finally {
+            $db->rollBack();
+        }
+
+        self::assertFalse($db->inTransaction());
+        self::assertSame(0, (int) $db->fetchOne(
+            'SELECT count(*) AS count FROM inbox_events'
+        )['count']);
+        self::assertSame(0, (int) $db->fetchOne(
+            'SELECT count(*) AS count FROM demo_effects'
+        )['count']);
+
+        self::assertSame('accepted', $inbox->receive('demo', 'outer-transaction', $body));
+        self::assertSame('duplicate', $inbox->receive('demo', 'outer-transaction', $body));
+        self::assertSame(1, (int) Database::connect()->query(
+            'SELECT count(*) FROM inbox_events'
+        )->fetchColumn(), 'Successful admission is committed and visible to another connection');
+    }
+
+    #[DataProvider('adapters')]
+    public function testReceiverCannotReturnHttp202InsideExternalTransaction(string $kind): void
+    {
+        $db = $this->adapter($kind);
+        $this->reset();
+        $receiver = new Receiver(new Inbox($db), 'demo', 'test-signing-secret-for-receiver');
+        $body = '{"id":"receiver-outer","amount":5}';
+        $timestamp = (string) time();
+        $signature = 'sha256=' . hash_hmac(
+            'sha256',
+            $timestamp . '.' . $body,
+            'test-signing-secret-for-receiver'
+        );
+
+        $db->beginTransaction();
+        try {
+            try {
+                $receiver->handle('POST', $body, $timestamp, $signature);
+                self::fail('Receiver must not return HTTP 202 for an uncommitted event');
+            } catch (LogicException $e) {
+                self::assertStringContainsString('existing transaction', $e->getMessage());
+            }
+            self::assertTrue($db->inTransaction());
+            self::assertSame(0, (int) $db->fetchOne(
+                'SELECT count(*) AS count FROM inbox_events'
+            )['count']);
+        } finally {
+            $db->rollBack();
+        }
+
+        self::assertFalse($db->inTransaction());
+        self::assertSame(0, (int) Database::connect()->query(
+            'SELECT count(*) FROM inbox_events'
+        )->fetchColumn());
+        self::assertSame(202, $receiver->handle('POST', $body, $timestamp, $signature)['status']);
+        self::assertSame(1, (int) Database::connect()->query(
+            'SELECT count(*) FROM inbox_events'
+        )->fetchColumn());
     }
 
     private function reset(): void
