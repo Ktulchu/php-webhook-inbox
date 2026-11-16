@@ -53,12 +53,19 @@ final class Yii2Adapter implements ConnectionInterface
 
     public function fetchOne(string $sql, array $params = []): ?array
     {
-        $row = $this->connection->createCommand($sql, $params)->queryOne();
-        return $row === false ? null : $row;
+        // Yii2 queryOne() normally prepares for reading (potentially on a slave).
+        // INSERT ... RETURNING and deduplication reads must use the master,
+        // without serving or populating the application's query cache.
+        return $this->connection->useMaster(static function (Connection $db) use ($sql, $params): ?array {
+            $row = $db->createCommand($sql, $params)->noCache()->queryOne();
+            return $row === false ? null : $row;
+        });
     }
 
     public function execute(string $sql, array $params = []): int
     {
-        return $this->connection->createCommand($sql, $params)->execute();
+        return $this->connection->useMaster(
+            static fn (Connection $db): int => $db->createCommand($sql, $params)->noCache()->execute()
+        );
     }
 }
