@@ -6,6 +6,12 @@ RUN apk add --no-cache postgresql-dev oniguruma-dev libxml2-dev \
 COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
 WORKDIR /app
 COPY . /app
-RUN composer install --no-interaction --prefer-dist --no-progress
+RUN composer install --no-interaction --prefer-dist --no-progress \
+    && addgroup -S app \
+    && adduser -S -G app -u 10001 app \
+    && mkdir -p /app/.phpunit.cache \
+    && chown app:app /app/.phpunit.cache
+
+USER app
 
 CMD ["php", "-S", "0.0.0.0:8080", "-t", "public", "public/index.php"]

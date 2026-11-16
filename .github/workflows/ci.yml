@@ -2,7 +2,11 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   tests:
@@ -57,16 +61,16 @@ jobs:
           BODY='{"id":"smoke-1","amount":19}'
           STAMP=$(date +%s)
           SIG=$(printf '%s.%s' "$STAMP" "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" -hex | awk '{print $NF}')
+          ready=0
           for i in {1..15}; do
-            if curl -fsS http://127.0.0.1:8080/not-found >/dev/null 2>&1; then
-              break
-            fi
-            # Receiver returns 404 once started; curl without -f treats this as reachable.
-            if curl -sS --max-time 2 http://127.0.0.1:8080/not-found >/dev/null 2>&1; then
+            # Any HTTP response (404 expected) means the demo server is reachable.
+            if curl --silent --output /dev/null --max-time 2 http://127.0.0.1:8080/not-found; then
+              ready=1
               break
             fi
             sleep 1
           done
+          test "$ready" = 1
           CODE=$(curl -sS -o /tmp/webhook-response -w '%{http_code}' \
             -X POST http://127.0.0.1:8080/webhook \
             -H "X-Webhook-Timestamp: $STAMP" \
