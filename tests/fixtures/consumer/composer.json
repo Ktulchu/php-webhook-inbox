@@ -1,6 +1,5 @@
 {
   "name": "ktulchu/webhook-inbox-consumer-check",
-  "private": true,
   "type": "project",
   "repositories": [
     {

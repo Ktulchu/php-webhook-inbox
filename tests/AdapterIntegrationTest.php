@@ -148,6 +148,9 @@ final class AdapterIntegrationTest extends TestCase
             if (!class_exists(YiiConnection::class)) {
                 self::markTestSkipped('Yii2 not installed; run framework-adapters CI job');
             }
+            if (!class_exists(\Yii::class, false)) {
+                require_once dirname(__DIR__) . '/vendor/yiisoft/yii2/Yii.php';
+            }
             $connection = new YiiConnection([
                 'dsn' => sprintf(
                     'pgsql:host=%s;port=%s;dbname=%s',

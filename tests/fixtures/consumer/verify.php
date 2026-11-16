@@ -30,11 +30,15 @@ $handler = new class implements EventHandler {
     }
 };
 
-if ((new Inbox($adapter))->receive('consumer', 'one', '{"id":"one","amount":11}') !== 'accepted'
-    || (new Inbox($adapter))->receive('consumer', 'one', '{"id":"one","amount":11}') !== 'duplicate'
-    || !(new Worker($adapter, $handler))->runOnce()
-    || (int) $adapter->fetchOne('SELECT count(*) AS n FROM demo_effects')['n'] !== 1
-    || $adapter->fetchOne("SELECT status FROM inbox_events WHERE event_id='one'")['status'] !== 'done') {
+$inbox = new Inbox($adapter);
+$first = $inbox->receive('consumer', 'one', '{"id":"one","amount":11}');
+$second = $inbox->receive('consumer', 'one', '{"id":"one","amount":11}');
+$processed = (new Worker($adapter, $handler))->runOnce();
+$count = (int) $adapter->fetchOne('SELECT count(*) AS n FROM demo_effects')['n'];
+$status = $adapter->fetchOne("SELECT status FROM inbox_events WHERE event_id='one'")['status'];
+
+if ($first !== 'accepted' || $second !== 'duplicate'
+    || !$processed || $count !== 1 || $status !== 'done') {
     throw new RuntimeException('Consumer package integration failed');
 }
 echo "Independent Composer consumer verified\n";

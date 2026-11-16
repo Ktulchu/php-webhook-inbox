@@ -38,13 +38,6 @@ jobs:
           extensions: pdo_pgsql
           coverage: none
           tools: composer:v2
-      # Temporary baseline-lock refresh for v0.2; removed after capture.
-      - run: composer update --lock --no-interaction --no-progress
-      - name: Export updated lock for pinned reproducibility
-        run: |
-          echo 'LOCK_BEGIN'
-          cat composer.lock
-          echo 'LOCK_END'
       - run: composer validate --strict
       - run: composer install --no-interaction --prefer-dist --no-progress
       - run: composer audit --no-interaction
