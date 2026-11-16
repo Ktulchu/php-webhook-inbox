@@ -54,7 +54,7 @@ $worker = new Worker($connection, $yourHandler);
 $worker->runOnce();
 ```
 
-Do not use DBAL's native driver connection to start/commit transactions. The adapter uses `Connection::beginTransaction()`, `commit()`, `rollBack()` and DBAL SQL APIs so that DBAL's transaction nesting level remains consistent. Use one DBAL connection for the event and business tables.
+DBAL's transaction nesting level detects transactions started through DBAL itself, not necessarily transactions opened directly through its underlying native driver. Starting a native-driver transaction behind DBAL's back is unsupported; it can bypass the Inbox admission guard. Do not use DBAL's native driver connection to start/commit transactions. The adapter uses `Connection::beginTransaction()`, `commit()`, `rollBack()` and DBAL SQL APIs so that DBAL's transaction nesting level remains consistent. Use one DBAL connection for the event and business tables.
 
 ## Custom adapter
 
