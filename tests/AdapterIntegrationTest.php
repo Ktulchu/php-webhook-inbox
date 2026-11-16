@@ -133,6 +133,70 @@ final class AdapterIntegrationTest extends TestCase
         )['status']);
     }
 
+
+    #[DataProvider('adapters')]
+    public function testHandlerSqlErrorIsCountedAsRetryAndFullyRolledBack(string $kind): void
+    {
+        $db = $this->adapter($kind);
+        $this->reset();
+        (new Inbox($db))->receive('demo', 'sql-failure', '{"id":"sql-failure","amount":1}');
+        $handler = new class implements EventHandler {
+            public function handle(ConnectionInterface $db, array $event): void
+            {
+                $db->execute(
+                    'INSERT INTO demo_effects (source,event_id,amount) VALUES (:s,:e,1)',
+                    ['s' => $event['source'], 'e' => $event['event_id']]
+                );
+                $db->execute("INSERT INTO demo_effects (source,event_id,amount)
+                    VALUES ('demo','broken','not-an-integer')");
+            }
+        };
+
+        self::assertTrue((new Worker($db, $handler, 2))->runOnce());
+        self::assertFalse($db->inTransaction());
+        self::assertSame('pending', $db->fetchOne(
+            "SELECT status FROM inbox_events WHERE event_id='sql-failure'"
+        )['status']);
+        self::assertSame(1, (int) $db->fetchOne(
+            "SELECT attempts FROM inbox_events WHERE event_id='sql-failure'"
+        )['attempts']);
+        self::assertSame(0, (int) $db->fetchOne(
+            'SELECT count(*) AS count FROM demo_effects'
+        )['count']);
+    }
+
+    #[DataProvider('adapters')]
+    public function testSkipLockedWithEachAdapter(string $kind): void
+    {
+        $db = $this->adapter($kind);
+        $this->reset();
+        (new Inbox($db))->receive('demo', 'lock-test', '{"id":"lock-test","amount":1}');
+        $other = Database::connect();
+        $other->beginTransaction();
+        try {
+            $other->query("SELECT id FROM inbox_events WHERE event_id='lock-test' FOR UPDATE")->fetch();
+            $handler = new class implements EventHandler {
+                public function handle(ConnectionInterface $db, array $event): void
+                {
+                    $db->execute(
+                        'INSERT INTO demo_effects (source,event_id,amount) VALUES (:s,:e,1)',
+                        ['s' => $event['source'], 'e' => $event['event_id']]
+                    );
+                }
+            };
+            self::assertFalse((new Worker($db, $handler))->runOnce());
+            self::assertSame(0, (int) $db->fetchOne(
+                'SELECT count(*) AS count FROM demo_effects'
+            )['count']);
+        } finally {
+            $other->rollBack();
+        }
+        self::assertTrue((new Worker($db, $handler))->runOnce());
+        self::assertSame(1, (int) $db->fetchOne(
+            'SELECT count(*) AS count FROM demo_effects'
+        )['count']);
+    }
+
     private function reset(): void
     {
         Database::connect()->exec('TRUNCATE TABLE demo_effects, inbox_events RESTART IDENTITY');

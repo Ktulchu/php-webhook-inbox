@@ -42,7 +42,7 @@ $result = (new Inbox($connection))->receive(
 // 'accepted' | 'duplicate' | 'conflict'
 ```
 
-The SQL schema is [database/001_create_inbox.sql](database/001_create_inbox.sql).
+The reusable SQL schema is [database/001_create_inbox.sql](database/001_create_inbox.sql) (inbox only). The demo's business table is defined separately in [examples/basic/database/001_demo_effects.sql](examples/basic/database/001_demo_effects.sql).
 For real webhook endpoints, verify the provider-native signature **before** calling `Inbox::receive()`. The [local demo](examples/basic/) includes a *separate, illustrative* HMAC receiver.
 
 ### Handle the event
@@ -137,6 +137,6 @@ The `ConnectionInterface` only exposes `beginTransaction`, `commit`, `rollBack`,
 
 **CI** checks PHPUnit with PostgreSQL, PHPStan, dependency security audit, Docker HTTP smoke, framework adapters, and installation from an independent Composer consumer.
 
-[ADR 0001: PostgreSQL instead of a broker](docs/adr/0001-postgres-inbox.md) · [ADR 0002: Transaction boundary](docs/adr/0002-transaction-boundary.md) · [Security policy](SECURITY.md)
+[ADR 0001: PostgreSQL instead of a broker](docs/adr/0001-postgres-inbox.md) · [ADR 0002: Transaction boundary](docs/adr/0002-transaction-boundary.md) · [ADR 0003: Application-owned connections](docs/adr/0003-connection-contract.md) · [Security policy](SECURITY.md)
 
 MIT License.

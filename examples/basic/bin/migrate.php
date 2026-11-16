@@ -6,11 +6,19 @@ require dirname(__DIR__) . '/Database.php';
 
 use Ktulchu\WebhookInbox\Example\Database;
 
-$sql = file_get_contents(dirname(__DIR__, 3) . '/database/001_create_inbox.sql');
-if ($sql === false) {
-    fwrite(STDERR, "Cannot read migration\n");
-    exit(1);
+// The reusable package migration includes inbox_events only.
+// demo_effects belongs exclusively to the standalone example.
+$db = Database::connect();
+foreach ([
+    dirname(__DIR__, 3) . '/database/001_create_inbox.sql',
+    dirname(__DIR__) . '/database/001_demo_effects.sql',
+] as $path) {
+    $sql = file_get_contents($path);
+    if ($sql === false) {
+        fwrite(STDERR, "Cannot read migration: {$path}\n");
+        exit(1);
+    }
+    $db->exec($sql);
 }
 
-Database::connect()->exec($sql);
-fwrite(STDOUT, "Schema ready\n");
+fwrite(STDOUT, "Demo schema ready\n");
