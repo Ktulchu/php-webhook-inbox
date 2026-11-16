@@ -32,6 +32,9 @@ jobs:
       DB_PASSWORD: test_password
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git diff --check origin/main...HEAD
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
