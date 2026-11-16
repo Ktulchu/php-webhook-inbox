@@ -1,10 +1,11 @@
 <?php
 declare(strict_types=1);
 
-namespace Ktulchu\WebhookInbox;
+namespace Ktulchu\WebhookInbox\Example;
 
 use PDO;
 
+/** Local demo only: applications construct their own connections. */
 final class Database
 {
     public static function connect(): PDO

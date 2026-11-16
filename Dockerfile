@@ -14,4 +14,4 @@ RUN composer install --no-interaction --prefer-dist --no-progress \
 
 USER app
 
-CMD ["php", "-S", "0.0.0.0:8080", "-t", "public", "public/index.php"]
+CMD ["php", "-S", "0.0.0.0:8080", "-t", "examples/basic/public", "examples/basic/public/index.php"]

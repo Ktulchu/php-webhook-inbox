@@ -1,0 +1,179 @@
+<?php
+declare(strict_types=1);
+
+namespace Ktulchu\WebhookInbox\Tests;
+
+use Doctrine\DBAL\DriverManager;
+use Ktulchu\WebhookInbox\Adapter\DoctrineAdapter;
+use Ktulchu\WebhookInbox\Adapter\PdoAdapter;
+use Ktulchu\WebhookInbox\Adapter\Yii2Adapter;
+use Ktulchu\WebhookInbox\ConnectionInterface;
+use Ktulchu\WebhookInbox\EventHandler;
+use Ktulchu\WebhookInbox\Example\Database;
+use Ktulchu\WebhookInbox\Inbox;
+use Ktulchu\WebhookInbox\Worker;
+use LogicException;
+use PDO;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\TestCase;
+use Throwable;
+use yii\db\Connection as YiiConnection;
+
+final class AdapterIntegrationTest extends TestCase
+{
+    /** @return iterable<string, array{string}> */
+    public static function adapters(): iterable
+    {
+        yield 'PDO' => ['pdo'];
+        yield 'Yii2' => ['yii2'];
+        yield 'Doctrine DBAL 4' => ['doctrine'];
+    }
+
+    #[DataProvider('adapters')]
+    public function testTransactionSavepointAndSqlErrorRecovery(string $kind): void
+    {
+        $db = $this->adapter($kind);
+        $this->reset();
+
+        self::assertFalse($db->inTransaction());
+        $db->beginTransaction();
+        self::assertTrue($db->inTransaction());
+        $db->execute("INSERT INTO demo_effects (source,event_id,amount)
+            VALUES ('contract','rollback',1)");
+        $db->rollBack();
+        self::assertFalse($db->inTransaction());
+        self::assertSame(null, $db->fetchOne(
+            "SELECT event_id FROM demo_effects WHERE event_id='rollback'"
+        ));
+
+        $db->beginTransaction();
+        $db->execute('SAVEPOINT test_contract');
+        try {
+            $db->execute("INSERT INTO demo_effects (source,event_id,amount)
+                VALUES ('contract','invalid','not-an-integer')");
+            self::fail('Expected PostgreSQL to reject invalid integer');
+        } catch (Throwable $e) {
+            self::assertNotInstanceOf(\PHPUnit\Framework\AssertionFailedError::class, $e);
+        }
+        $db->execute('ROLLBACK TO SAVEPOINT test_contract');
+        $db->execute("INSERT INTO demo_effects (source,event_id,amount)
+            VALUES ('contract','committed',2)");
+        $db->commit();
+
+        self::assertFalse($db->inTransaction());
+        self::assertNotNull($db->fetchOne(
+            "SELECT event_id FROM demo_effects WHERE event_id='committed'"
+        ));
+    }
+
+    #[DataProvider('adapters')]
+    public function testWorkerRejectsExistingTransactionWithoutChangingIt(string $kind): void
+    {
+        $db = $this->adapter($kind);
+        $this->reset();
+        (new Inbox($db))->receive('demo', 'external', '{"id":"external","amount":1}');
+        $handler = new class implements EventHandler {
+            public function handle(ConnectionInterface $db, array $event): void
+            {
+                throw new \RuntimeException('Must never execute');
+            }
+        };
+
+        $db->beginTransaction();
+        try {
+            (new Worker($db, $handler))->runOnce();
+            self::fail('Worker should reject existing transaction');
+        } catch (LogicException $e) {
+            self::assertStringContainsString('existing transaction', $e->getMessage());
+            self::assertTrue($db->inTransaction(), 'Must not commit or roll back caller transaction');
+        } finally {
+            $db->rollBack();
+        }
+        self::assertSame('pending', $db->fetchOne(
+            "SELECT status FROM inbox_events WHERE event_id='external'"
+        )['status']);
+    }
+
+    #[DataProvider('adapters')]
+    public function testWorkerPassesSameAdapterAndSessionToHandler(string $kind): void
+    {
+        $db = $this->adapter($kind);
+        $this->reset();
+
+        $originalPid = (string) $db->fetchOne('SELECT pg_backend_pid() AS pid')['pid'];
+        (new Inbox($db))->receive('demo', 'session-test', '{"id":"session-test","amount":1}');
+        $handler = new class($db) implements EventHandler {
+            public bool $sameInstance = false;
+            public ?string $sessionPid = null;
+
+            public function __construct(private readonly ConnectionInterface $expected)
+            {
+            }
+
+            public function handle(ConnectionInterface $db, array $event): void
+            {
+                $this->sameInstance = ($db === $this->expected);
+                $this->sessionPid = (string) $db->fetchOne('SELECT pg_backend_pid() AS pid')['pid'];
+                $db->execute(
+                    'INSERT INTO demo_effects (source,event_id,amount) VALUES (:s,:e,:amount)',
+                    ['s' => $event['source'], 'e' => $event['event_id'], 'amount' => 1]
+                );
+            }
+        };
+
+        self::assertTrue((new Worker($db, $handler))->runOnce());
+        self::assertTrue($handler->sameInstance);
+        self::assertSame($originalPid, $handler->sessionPid);
+        self::assertFalse($db->inTransaction());
+        self::assertSame(1, (int) $db->fetchOne(
+            "SELECT count(*) AS count FROM demo_effects WHERE event_id='session-test'"
+        )['count']);
+        self::assertSame('done', $db->fetchOne(
+            "SELECT status FROM inbox_events WHERE event_id='session-test'"
+        )['status']);
+    }
+
+    private function reset(): void
+    {
+        Database::connect()->exec('TRUNCATE TABLE demo_effects, inbox_events RESTART IDENTITY');
+    }
+
+    private function adapter(string $kind): ConnectionInterface
+    {
+        if ($kind === 'pdo') {
+            return new PdoAdapter(Database::connect());
+        }
+
+        if ($kind === 'yii2') {
+            if (!class_exists(YiiConnection::class)) {
+                self::markTestSkipped('Yii2 not installed; run framework-adapters CI job');
+            }
+            $connection = new YiiConnection([
+                'dsn' => sprintf(
+                    'pgsql:host=%s;port=%s;dbname=%s',
+                    getenv('DB_HOST') ?: '127.0.0.1',
+                    getenv('DB_PORT') ?: '5432',
+                    getenv('DB_NAME') ?: 'webhooks',
+                ),
+                'username' => getenv('DB_USER') ?: 'webhooks',
+                'password' => getenv('DB_PASSWORD') ?: '',
+                'charset' => 'utf8',
+            ]);
+            $connection->open();
+            return new Yii2Adapter($connection);
+        }
+
+        if (!class_exists(DriverManager::class)) {
+            self::markTestSkipped('Doctrine DBAL not installed; run framework-adapters CI job');
+        }
+        $connection = DriverManager::getConnection([
+            'driver' => 'pdo_pgsql',
+            'host' => getenv('DB_HOST') ?: '127.0.0.1',
+            'port' => (int) (getenv('DB_PORT') ?: 5432),
+            'dbname' => getenv('DB_NAME') ?: 'webhooks',
+            'user' => getenv('DB_USER') ?: 'webhooks',
+            'password' => getenv('DB_PASSWORD') ?: '',
+        ]);
+        return new DoctrineAdapter($connection);
+    }
+}

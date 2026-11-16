@@ -3,8 +3,9 @@ declare(strict_types=1);
 
 namespace Ktulchu\WebhookInbox\Tests;
 
-use Ktulchu\WebhookInbox\Database;
+use Ktulchu\WebhookInbox\Example\Database;
 use Ktulchu\WebhookInbox\Inbox;
+use Ktulchu\WebhookInbox\Adapter\PdoAdapter;
 use PDO;
 use PHPUnit\Framework\TestCase;
 
@@ -32,7 +33,7 @@ final class ConcurrentIntegrationTest extends TestCase
 
     public function testFiveConcurrentWorkersProcessFiveDistinctEvents(): void
     {
-        $inbox = new Inbox($this->db);
+        $inbox = new Inbox(new PdoAdapter($this->db));
         for ($i = 1; $i <= 5; $i++) {
             $id = 'parallel-' . $i;
             self::assertSame('accepted', $inbox->receive('demo', $id, json_encode([
@@ -40,7 +41,7 @@ final class ConcurrentIntegrationTest extends TestCase
             ], JSON_THROW_ON_ERROR)));
         }
 
-        $this->spawn(array_fill(0, 5, [PHP_BINARY, dirname(__DIR__) . '/bin/worker.php', '--once']));
+        $this->spawn(array_fill(0, 5, [PHP_BINARY, dirname(__DIR__) . '/examples/basic/bin/worker.php', '--once']));
         self::assertSame(5, (int) $this->db->query("SELECT count(*) FROM inbox_events WHERE status = 'done'")->fetchColumn());
         self::assertSame(5, (int) $this->db->query('SELECT count(*) FROM demo_effects')->fetchColumn());
         self::assertSame(5, (int) $this->db->query('SELECT count(DISTINCT event_id) FROM demo_effects')->fetchColumn());

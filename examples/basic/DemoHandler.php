@@ -1,15 +1,16 @@
 <?php
 declare(strict_types=1);
 
-namespace Ktulchu\WebhookInbox;
+namespace Ktulchu\WebhookInbox\Example;
 
 use JsonException;
-use PDO;
+use Ktulchu\WebhookInbox\ConnectionInterface;
+use Ktulchu\WebhookInbox\EventHandler;
 use RuntimeException;
 
 final class DemoHandler implements EventHandler
 {
-    public function handle(PDO $db, array $event): void
+    public function handle(ConnectionInterface $db, array $event): void
     {
         try {
             $data = json_decode($event['payload'], true, 512, JSON_THROW_ON_ERROR);
@@ -22,14 +23,14 @@ final class DemoHandler implements EventHandler
             throw new RuntimeException('amount must be an integer in range 1..100000000');
         }
 
-        $stmt = $db->prepare(
+        $db->execute(
             'INSERT INTO demo_effects (source, event_id, amount)
-             VALUES (:source, :event_id, :amount) ON CONFLICT (source, event_id) DO NOTHING'
+             VALUES (:source, :event_id, :amount) ON CONFLICT (source, event_id) DO NOTHING',
+            [
+                'source' => $event['source'],
+                'event_id' => $event['event_id'],
+                'amount' => $data['amount'],
+            ]
         );
-        $stmt->execute([
-            'source' => $event['source'],
-            'event_id' => $event['event_id'],
-            'amount' => $data['amount'],
-        ]);
     }
 }

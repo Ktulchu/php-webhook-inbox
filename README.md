@@ -2,13 +2,88 @@
 
 [![CI](https://github.com/Ktulchu/php-webhook-inbox/actions/workflows/ci.yml/badge.svg)](https://github.com/Ktulchu/php-webhook-inbox/actions/workflows/ci.yml)
 
-**A small, framework-independent transactional webhook inbox for PHP 8.3+ and PostgreSQL 16+.**
+**A small, framework-independent PostgreSQL webhook inbox for PHP 8.3+.**
 
-Demonstrates durable ingestion, provider-scoped idempotency, concurrent workers, bounded retries and crash-safe *database-local* processing. Built as a deliberately constrained example: review the guarantees and limitations below before adapting it.
+Durable admission, provider-scoped idempotency, concurrent workers via `FOR UPDATE SKIP LOCKED`, transaction-local business effects, bounded retries and crash recovery. No Redis, RabbitMQ or ORM.
 
-## Quick start
+> **Status:** v0.2 candidate. The library is not published on Packagist yet. Use a Composer path repository in another application for local integration, or a VCS repository for a specific Git ref. The demo signature protocol is not compatible with real payment providers without adaptation.
 
-Requires Docker Compose and OpenSSL for the sample request.
+## Use from another PHP application
+
+The package accepts an **application-owned connection** via `ConnectionInterface`; it never reads credentials or opens connections itself. The public `Inbox`, `Worker` and `EventHandler` APIs contain **no PDO, Yii2 or Doctrine types**.
+
+### Install (before Packagist release)
+
+In your application `composer.json` configure a path repository for a local checkout of this project:
+
+```json
+{
+  "repositories": [
+    {"type": "path", "url": "../php-webhook-inbox"}
+  ],
+  "require": {
+    "ktulchu/php-webhook-inbox": "@dev"
+  }
+}
+```
+
+Then run `composer update ktulchu/php-webhook-inbox`. An isolated consumer project is exercised in CI under `tests/fixtures/consumer`. After publishing on Packagist, the `repositories` override can be removed and a tagged version used instead.
+
+### Connect (plain PHP, existing PDO)
+
+```php
+use Ktulchu\WebhookInbox\Adapter\PdoAdapter;
+use Ktulchu\WebhookInbox\Inbox;
+
+$connection = new PdoAdapter($pdo); // your existing PostgreSQL PDO
+$result = (new Inbox($connection))->receive(
+    'billing-provider', 'event-123', '{"id":"event-123","amount":42}'
+);
+// 'accepted' | 'duplicate' | 'conflict'
+```
+
+The SQL schema is [database/001_create_inbox.sql](database/001_create_inbox.sql).
+For real webhook endpoints, verify the provider-native signature **before** calling `Inbox::receive()`. The [local demo](examples/basic/) includes a *separate, illustrative* HMAC receiver.
+
+### Handle the event
+
+```php
+use Ktulchu\WebhookInbox\ConnectionInterface;
+use Ktulchu\WebhookInbox\EventHandler;
+use Ktulchu\WebhookInbox\Worker;
+
+$handler = new class implements EventHandler {
+    public function handle(ConnectionInterface $db, array $event): void
+    {
+        $data = json_decode($event['payload'], true, 512, JSON_THROW_ON_ERROR);
+        // Example only: validate event business fields before any real update.
+        $db->execute(
+            'UPDATE orders SET paid = TRUE WHERE provider_event_id = :id',
+            ['id' => $event['event_id']]
+        );
+    }
+};
+
+$worker = new Worker($connection, $handler);
+$worker->runOnce(); // true if an event was claimed, false when no work was ready
+```
+
+The handler receives the **same adapter instance** as the worker. It must use that adapter for business writes, and must not start/commit/roll back transactions itself. No outgoing HTTP requests, emails or broker publishing inside this transactional handler.
+
+### Choose your adapter
+
+| App | Adapter | Optional dependency |
+|---|---|---|
+| Plain PHP | `Adapter\PdoAdapter($pdo)` | `ext-pdo`, `ext-pdo_pgsql` |
+| Yii2 | `Adapter\Yii2Adapter(Yii::$app->db)` | `yiisoft/yii2` |
+| Symfony/Doctrine DBAL 4 | `Adapter\DoctrineAdapter($connection)` | `doctrine/dbal:^4` |
+| Custom | Implement `ConnectionInterface` | Your driver |
+
+Only PostgreSQL is supported. Detailed integration snippets are in [docs/integration.md](docs/integration.md).
+
+## Run the standalone demo
+
+Requires Docker Compose. The example uses local-only credentials and the PHP built-in web server.
 
 ```bash
 git clone https://github.com/Ktulchu/php-webhook-inbox.git
@@ -17,10 +92,9 @@ cp .env.example .env
 docker compose up --build -d
 ```
 
-Generate a signed request (Linux/macOS shell):
+Send a signed demo request (Linux/macOS shell):
 
 ```bash
-# Must match WEBHOOK_SECRET in .env.
 SECRET='replace-with-a-random-secret-of-at-least-32-bytes'
 BODY='{"id":"evt-001","amount":125}'
 STAMP=$(date +%s)
@@ -30,89 +104,39 @@ curl -i -X POST http://127.0.0.1:8080/webhook \
   -H "X-Webhook-Timestamp: $STAMP" \
   -H "X-Webhook-Signature: sha256=$SIG" \
   --data-binary "$BODY"
-```
-
-Expected response: HTTP **202** and `{"status":"accepted"}`. Re-send the *same exact bytes* with a fresh valid timestamp/signature: HTTP **200** and `{"status":"duplicate"}`. Reuse the event ID with a different body: HTTP **409**.
-
-Process one event:
-
-```bash
-docker compose run --rm app php bin/worker.php --once
+docker compose run --rm app php examples/basic/bin/worker.php --once
 docker compose exec db psql -U webhooks -d webhooks \
   -c 'SELECT source, event_id, amount FROM demo_effects;'
 ```
 
-Start long-running workers in parallel with `docker compose --profile worker up -d --scale worker=3 worker`. `docker compose down -v` **deletes local database data**.
+Expected response: 202 accepted, same bytes and valid signature => 200 duplicate, same event ID but different bytes => 409 conflict. `docker compose --profile worker up -d --scale worker=3 worker` runs long-lived workers. **`docker compose down -v` deletes the demo DB volume.**
 
-### Local and CI tests
+## Guarantees
 
-```bash
-# With Docker Compose db/init already up; no worker profile enabled:
-docker compose run --rm app composer test
-docker compose run --rm app composer analyse
-```
-
-GitHub Actions runs PHPUnit against a real PostgreSQL 16 service and PHPStan. The tests exercise duplicate delivery, signature rejection, competing locks, handler rollback, retry exhaustion and process termination with an open transaction.
-
-## Design
-
-```text
-provider -- signed POST --> receiver -- INSERT / UNIQUE --> inbox_events
-                                                     |
-                                 worker(s) <-- SKIP LOCKED
-                                                     |
-                                    single PostgreSQL transaction
-                                    + SAVEPOINT around handler
-                                                     |
-                                   demo_effects + status=done
-```
-
-- **Authenticated source** is configured in `WEBHOOK_SOURCE`, not taken from an HTTP header. This example supports one signing secret. Adapt key rotation and multiple provider secrets explicitly when needed.
-- **Verification** uses `HMAC-SHA256(timestamp . "." . rawBody)`; timestamp freshness is ±300 seconds. This is a demo protocol, **not** a drop-in adapter for Stripe, GitHub or other providers with different signature formats. Protect the secret and require HTTPS in deployment.
-- **Ingress** inserts original JSON into PostgreSQL JSONB and stores a SHA-256 hash of the exact raw bytes. Provider-scoped `UNIQUE (source, event_id)` gates duplicates; same ID with different exact body bytes is a conflict. A 202 is returned only after the implicit INSERT transaction commits.
-- **Processing** claims one ready row using `FOR UPDATE SKIP LOCKED`, keeps its row lock, executes the handler and marks `done` before **one** COMMIT. A dead process rolls back both effects and acknowledgment.
-- **Failure** rolls back the handler to a savepoint while retaining the retry count and last error; default retry delays are 2, 4 seconds and then terminal `failed` on the third attempt. SQL errors thrown by a handler also count as failed attempts. If the DB connection itself fails, recording retry metadata is impossible: the transaction aborts and the event becomes available when the connection is released.
-- **Diagnostics** retain events and failure details. This MVP does not implement automatic redrive of `failed` rows or retention cleanup; these are operator decisions.
-
-## Guarantees and deliberate non-guarantees
-
-| Situation | Behavior |
+| Condition | Behavior |
 |---|---|
-| Provider retries same ID and raw body | One stored event, no duplicate business effect |
-| 3 workers compete for one ready event | One owns the row lock; other workers skip it |
-| Handler throws after a DB write | Savepoint undoes its writes; retry remains pending |
-| Process dies before COMMIT | PostgreSQL rolls back transaction; event is reclaimable |
-| Handler and status commit | They commit atomically in the **same PostgreSQL database** |
-| External HTTP call, email, broker publication | **Not exactly-once**. Never perform these in this demo handler |
-| New payload reuses existing event ID | HTTP 409, no overwrite |
-| PostgreSQL temporarily unavailable | Ingestion responds 503; sender must retry |
+| Same signed webhook delivered repeatedly | One inbox event per `(source, event_id)` |
+| Multiple workers claim work | Row-level locks and `SKIP LOCKED` prevent concurrent processing of the same event |
+| Handler throws, including an SQL exception | Roll back to savepoint, commit attempt/backoff state |
+| Process dies before commit | PostgreSQL rolls back business writes and acknowledgment together |
+| Handler and acknowledgment in the same database transaction | Both commit or both roll back |
+| Worker started in an existing app transaction | Fails fast without touching the caller's transaction |
+| External HTTP/email/queue effects | **No exactly-once guarantee**; deliberately outside scope |
 
-This is **at-least-once processing** with one committed effect for the included database-local demo handler, *not* a general distributed exactly-once platform. Repeated deliveries during the five-minute signature window are safe because durable event IDs, not timestamps, implement deduplication.
+The system provides **at-least-once execution** with database-local atomic writes. Providers can retry after losing the HTTP response. No arbitrary remote exactly-once guarantee exists. Locks are held while a handler runs: keep handlers short and database-local.
 
-## Boundaries
+## Design choices, testing and limitations
 
-- No Redis, RabbitMQ, workflow engine, framework, leasing system or external business effects.
-- Payload limit 256 KiB. IDs must match `[A-Za-z0-9_.:-]{1,200}`; demo amount must be a positive integer <= 100,000,000.
-- `--once` worker is useful for reproducible demonstrations; the default worker polls continuously every second when idle.
-- DB credentials in `.env.example` are for an **isolated local environment only**.
-- Schema creation is idempotent for a fresh deployment. There is intentionally no versioned migration runner.
-- The PHP built-in web server is only for local demonstration; use a production HTTP server and secrets management for a real deployment.
+The `ConnectionInterface` only exposes `beginTransaction`, `commit`, `rollBack`, `inTransaction`, `fetchOne`, `execute`. Named query parameters are supported (without colons in the associative keys). Savepoints use PostgreSQL SQL statements and are not a general nested-transaction API.
 
-## Architectural decisions
+- **Transactions must be started via the corresponding framework adapter.** Do not directly call PDO transaction APIs underneath Yii2 or Doctrine. Both frameworks maintain their own transaction bookkeeping; mixing raw and managed transaction calls can corrupt it.
+- The worker always requires an **idle connection** before its transaction. The adapter, handler and inbox must refer to the *same physical PostgreSQL session*. Forcing a new connection inside a handler breaks the guarantee.
+- The HMAC receiver is a **demo protocol**: `HMAC-SHA256(timestamp . "." . rawBody)`, ±300 seconds, maximum 256 KiB, trusted source configured server-side; **not** a Stripe/GitHub/Robokassa adapter. Use HTTPS, proper provider-native verification and key rotation for real deployments.
+- This sample does not implement retention, failed-event redrive, operational metrics, backups, bounded runtime per handler, or production HTTP infrastructure. Raw event JSON is stored unencrypted.
+- Sample credentials in `.env.example` are only for localhost. `PDO` is required for the standalone demo, but **not for users of the core interface** with another supported driver.
 
-- [ADR 0001: PostgreSQL instead of a broker](docs/adr/0001-postgres-inbox.md)
-- [ADR 0002: Transaction boundary](docs/adr/0002-transaction-boundary.md)
+**CI** checks PHPUnit with PostgreSQL, PHPStan, dependency security audit, Docker HTTP smoke, framework adapters, and installation from an independent Composer consumer.
 
-MIT license.
+[ADR 0001: PostgreSQL instead of a broker](docs/adr/0001-postgres-inbox.md) · [ADR 0002: Transaction boundary](docs/adr/0002-transaction-boundary.md) · [Security policy](SECURITY.md)
 
-## Publication / deployment warning
-
-This repository is a **reference implementation and local demo**, not a production-ready
-Stripe/GitHub webhook adapter. Before deployment, use a provider-specific signature
-protocol, HTTPS, random secrets with rotation, access controls, production HTTP server,
-database backups, bounded handler execution time, structured operational logs and
-monitoring of pending/failed events. Do not use sample credentials on any public host.
-
-The request body is stored in plaintext JSONB in the example inbox. Do not feed real
-customer personal data or secrets into the demo database without implementing
-appropriate retention, encryption, access restrictions and deletion policies.
+MIT License.

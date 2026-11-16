@@ -1,9 +1,11 @@
 <?php
 declare(strict_types=1);
 
-require dirname(__DIR__) . '/vendor/autoload.php';
+require dirname(__DIR__, 3) . '/vendor/autoload.php';
+require dirname(__DIR__) . '/Database.php';
 
-use Ktulchu\WebhookInbox\Database;
+use Ktulchu\WebhookInbox\Adapter\PdoAdapter;
+use Ktulchu\WebhookInbox\Example\Database;
 use Ktulchu\WebhookInbox\Inbox;
 use Ktulchu\WebhookInbox\Receiver;
 
@@ -22,9 +24,8 @@ try {
         throw new RuntimeException('WEBHOOK_SECRET must contain at least 16 characters');
     }
 
-    // Source is configuration, never an untrusted client-supplied header.
     $source = getenv('WEBHOOK_SOURCE') ?: 'demo';
-    $receiver = new Receiver(new Inbox(Database::connect()), $source, $secret);
+    $receiver = new Receiver(new Inbox(new PdoAdapter(Database::connect())), $source, $secret);
     $raw = file_get_contents('php://input', false, null, 0, 262145);
     if ($raw === false) {
         throw new RuntimeException('Failed to read request body');
@@ -37,13 +38,11 @@ try {
         $_SERVER['HTTP_X_WEBHOOK_SIGNATURE'] ?? null,
     );
     http_response_code($result['status']);
-
     if ($result['status'] === 405) {
         header('Allow: POST');
     }
     echo json_encode($result['body'], JSON_THROW_ON_ERROR);
 } catch (Throwable) {
-    // Do not expose SQL errors, secrets or payloads to callers.
     http_response_code(503);
     echo '{"status":"unavailable"}';
 }
