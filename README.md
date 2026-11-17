@@ -4,6 +4,10 @@
 
 **Transactional PostgreSQL webhook inbox for PHP 8.3+, without a framework dependency.** Admit each authenticated event once per provider, then let concurrent workers apply database-local effects atomically using `FOR UPDATE SKIP LOCKED`, savepoints and bounded retries.
 
+## Project background
+
+The webhook processing problems and design decisions behind this library come from years of commercial integration work. This public repository contains a standalone, generalized implementation rather than the original application's code. The earlier development history stays in private commercial GitLab; the public GitHub history begins with extraction and packaging, and this release has its own tests and lifecycle.
+
 **Version:** `v0.2.0` is the first tagged GitHub release. To install from Packagist, the maintainer must first register the repository at [packagist.org](https://packagist.org/); until the [package listing](https://packagist.org/packages/ktulchu/php-webhook-inbox) is available, use the GitHub VCS repository instructions below. This is an early release, not a claim of security-audited production readiness.
 
 ## Requirements
