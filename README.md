@@ -4,6 +4,16 @@
 
 **Transactional PostgreSQL webhook inbox for PHP 8.3+, without a framework dependency.** Admit each authenticated event once per provider, then let concurrent workers apply database-local effects atomically using `FOR UPDATE SKIP LOCKED`, savepoints and bounded retries.
 
+## Supported database adapters
+
+The core is framework-independent. Choose an adapter for the database connection already managed by your application:
+
+- **[PDO](src/Adapter/PdoAdapter.php)** — plain PHP with `pdo_pgsql`.
+- **[Yii2](src/Adapter/Yii2Adapter.php)** — Yii2 `yii\db\Connection`.
+- **[Symfony / Doctrine DBAL 4](src/Adapter/DoctrineAdapter.php)** — Doctrine `Connection` (including Symfony projects).
+
+See the [integration guide](docs/integration.md) for usage and examples. Laravel has no dedicated adapter in `v0.2.0`; use the PDO adapter only when the application's connection/transaction ownership requirements are met.
+
 ## Project background
 
 The webhook processing problems and design decisions behind this library come from years of commercial integration work. This public repository contains a standalone, generalized implementation rather than the original application's code. The earlier development history stays in private commercial GitLab; the public GitHub history begins with extraction and packaging, and this release has its own tests and lifecycle.
