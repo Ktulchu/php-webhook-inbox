@@ -65,7 +65,7 @@ jobs:
         run: |
           composer config --no-interaction repositories.asset-packagist composer https://asset-packagist.org
           composer config --no-interaction allow-plugins.yiisoft/yii2-composer true
-          composer require --dev --no-interaction --no-progress "yiisoft/yii2:^2.0.53" "doctrine/dbal:^4.3"
+          composer require --dev --no-interaction --no-progress "yiisoft/yii2:^2.0.53" "doctrine/dbal:^4.3" "yiisoft/db-pgsql:^2.0"
       - run: php examples/basic/bin/migrate.php
       - run: vendor/bin/phpunit tests/AdapterIntegrationTest.php
       - run: vendor/bin/phpstan analyse --configuration phpstan-adapters.neon --no-progress
