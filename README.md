@@ -10,6 +10,7 @@ The core is framework-independent. Choose an adapter for the database connection
 
 - **[PDO](src/Adapter/PdoAdapter.php)** — plain PHP with `pdo_pgsql`.
 - **[Yii2](src/Adapter/Yii2Adapter.php)** — Yii2 `yii\db\Connection`.
+- **[Yii3](src/Adapter/Yii3Adapter.php)** — Yii DB 2 PostgreSQL connection (`yiisoft/db-pgsql`), on the development branch; not included in tagged v0.2.0.
 - **[Symfony / Doctrine DBAL 4](src/Adapter/DoctrineAdapter.php)** — Doctrine `Connection` (including Symfony projects).
 
 See the [integration guide](docs/integration.md) for usage and examples. Laravel has no dedicated adapter in `v0.2.0`; use the PDO adapter only when the application's connection/transaction ownership requirements are met.
@@ -25,8 +26,9 @@ The webhook processing problems and design decisions behind this library come fr
 - PHP **8.3+**, Composer 2, **PostgreSQL 16+**.
 - With `PdoAdapter`: PHP extensions `pdo` and `pdo_pgsql`, an existing PostgreSQL PDO configured with `PDO::ERRMODE_EXCEPTION`.
 - With `Yii2Adapter`: an existing `yii\db\Connection` from your Yii2 application.
+- With `Yii3Adapter` (development branch): an existing `Yiisoft\Db\Connection\ConnectionInterface` backed by `yiisoft/db-pgsql:^2.0`; PostgreSQL only.
 - With `DoctrineAdapter`: an existing **Doctrine DBAL 4** `Connection` (e.g. in Symfony).
-- The library **does not create DB connections or run migrations** for your application. Yii2 and Doctrine are optional, not required by the core.
+- The library **does not create DB connections or run migrations** for your application. Yii2, Yii3 DB, and Doctrine are optional, not required by the core.
 
 ## Install v0.2 in an existing application
 
@@ -186,9 +188,9 @@ docker compose --profile worker up -d --scale worker=3 worker
 - PostgreSQL `FOR UPDATE SKIP LOCKED` prevents concurrent workers from claiming the same row. Worker and handler writes commit in the **same PostgreSQL transaction**.
 - On handler errors, the worker rolls back to a savepoint, records an attempt, schedules bounded exponential retry and eventually marks the event `failed`. A process crash before commit rolls back the handler writes and acknowledgment together.
 - The handler must use the worker's **same adapter/physical connection** and must **not** manage transactions or perform remote calls, send emails or publish messages. External side effects **do not** get exactly-once guarantees.
-- Yii2 adapter explicitly routes critical queries to **master** and disables its query cache, even if the application has slaves enabled. Doctrine uses DBAL transaction bookkeeping; bypassing it with native-driver transactions is **unsupported**.
+- Yii2 adapter explicitly routes critical queries to **master** and disables its query cache, even if the application has slaves enabled. Yii3 DB executes raw commands on the injected PostgreSQL connection, honors Yii3 transaction ownership and also guards native PDO transactions for PDO-backed connections. Doctrine uses DBAL transaction bookkeeping; bypassing it with native-driver transactions is **unsupported**.
 - PostgreSQL tables and business effects must be in the **same database** for atomicity. The library does **not** supply provider integrations, operational monitoring, failed-event redrive, retention, backups or production HTTP infrastructure. Payloads are stored as plaintext JSONB.
 
-[Detailed PHP / Yii2 / Symfony examples](docs/integration.md) · [Architectural decisions](docs/adr/0003-connection-contract.md) · [Security](SECURITY.md) · MIT License.
+[Detailed PHP / Yii2 / Yii3 / Symfony examples](docs/integration.md) · [Architectural decisions](docs/adr/0003-connection-contract.md) · [Security](SECURITY.md) · MIT License.
 
 **CI** covers PostgreSQL integration tests, optional-framework contract tests, a separate Composer consumer, PHPStan, Composer audit and Docker smoke testing. See [v0.2.0 release notes](docs/releases/v0.2.0.md).
