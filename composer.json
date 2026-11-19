@@ -11,7 +11,8 @@
     "ext-pdo": "Required by PdoAdapter and the bundled demo",
     "ext-pdo_pgsql": "Required by PdoAdapter with PostgreSQL",
     "yiisoft/yii2": "Required only for Yii2Adapter",
-    "doctrine/dbal": "Required only for DoctrineAdapter (DBAL 4)"
+    "doctrine/dbal": "Required only for DoctrineAdapter (DBAL 4)",
+    "yiisoft/db-pgsql": "Required only for Yii3Adapter (Yii DB 2 / PostgreSQL)"
   },
   "require-dev": {
     "phpunit/phpunit": "^11.5",

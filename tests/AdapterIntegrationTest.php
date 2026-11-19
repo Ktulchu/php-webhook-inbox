@@ -8,6 +8,7 @@ use Doctrine\DBAL\DriverManager;
 use Ktulchu\WebhookInbox\Adapter\DoctrineAdapter;
 use Ktulchu\WebhookInbox\Adapter\PdoAdapter;
 use Ktulchu\WebhookInbox\Adapter\Yii2Adapter;
+use Ktulchu\WebhookInbox\Adapter\Yii3Adapter;
 use Ktulchu\WebhookInbox\ConnectionInterface;
 use Ktulchu\WebhookInbox\EventHandler;
 use Ktulchu\WebhookInbox\Example\Database;
@@ -21,6 +22,8 @@ use PHPUnit\Framework\TestCase;
 use Throwable;
 use yii\db\Connection as YiiConnection;
 use yii\caching\ArrayCache;
+use Yiisoft\Db\Pgsql\Connection as Yii3Connection;
+use Yiisoft\Db\Pgsql\Driver as Yii3Driver;
 
 final class AdapterIntegrationTest extends TestCase
 {
@@ -29,6 +32,7 @@ final class AdapterIntegrationTest extends TestCase
     {
         yield 'PDO' => ['pdo'];
         yield 'Yii2' => ['yii2'];
+        yield 'Yii3' => ['yii3'];
         yield 'Doctrine DBAL 4' => ['doctrine'];
     }
 
@@ -449,6 +453,67 @@ final class AdapterIntegrationTest extends TestCase
         )->fetchColumn());
     }
 
+    public function testNativeYii3TransactionCannotAcknowledgeWebhook(): void
+    {
+        $connection = $this->yii3Connection();
+        $db = new Yii3Adapter($connection);
+        $this->reset();
+        $inbox = new Inbox($db);
+        $body = '{"id":"native-yii3","amount":4}';
+
+        $transaction = $connection->beginTransaction(); // deliberately bypass the adapter
+        $level = $transaction->getLevel();
+        try {
+            try {
+                $inbox->receive('demo', 'native-yii3', $body);
+                self::fail('Expected fail-fast inside Yii3-owned transaction');
+            } catch (LogicException $e) {
+                self::assertStringContainsString('existing transaction', $e->getMessage());
+            }
+            self::assertSame($level, $transaction->getLevel());
+            self::assertTrue($transaction->isActive());
+            self::assertTrue($db->inTransaction());
+            self::assertSame(0, (int) $connection->createCommand(
+                'SELECT count(*) FROM inbox_events'
+            )->queryScalar());
+            self::assertSame(1, (int) $connection->createCommand('SELECT 1')->queryScalar());
+        } finally {
+            $transaction->rollBack();
+        }
+
+        self::assertFalse($db->inTransaction());
+        self::assertSame(0, (int) Database::connect()->query(
+            'SELECT count(*) FROM inbox_events'
+        )->fetchColumn());
+        self::assertSame('accepted', $inbox->receive('demo', 'native-yii3', $body));
+    }
+
+    public function testNativeYii3PdoTransactionCannotAcknowledgeWebhook(): void
+    {
+        $connection = $this->yii3Connection();
+        $db = new Yii3Adapter($connection);
+        $this->reset();
+        $pdo = $connection->getActivePdo();
+        $pdo->beginTransaction(); // framework tracker does not know about this transaction
+        try {
+            self::assertTrue($db->inTransaction());
+            try {
+                (new Inbox($db))->receive('demo', 'native-pdo-yii3', '{"id":"native-pdo-yii3"}');
+                self::fail('Expected fail-fast inside native PDO transaction');
+            } catch (LogicException $e) {
+                self::assertStringContainsString('existing transaction', $e->getMessage());
+            }
+            self::assertTrue($pdo->inTransaction());
+        } finally {
+            $pdo->rollBack();
+        }
+
+        self::assertFalse($db->inTransaction());
+        self::assertSame(0, (int) Database::connect()->query(
+            'SELECT count(*) FROM inbox_events'
+        )->fetchColumn());
+    }
+
     private function reset(): void
     {
         Database::connect()->exec('TRUNCATE TABLE demo_effects, inbox_events RESTART IDENTITY');
@@ -462,6 +527,10 @@ final class AdapterIntegrationTest extends TestCase
 
         if ($kind === 'yii2') {
             return new Yii2Adapter($this->yiiConnection());
+        }
+
+        if ($kind === 'yii3') {
+            return new Yii3Adapter($this->yii3Connection());
         }
 
         return new DoctrineAdapter($this->doctrineConnection());
@@ -486,6 +555,27 @@ final class AdapterIntegrationTest extends TestCase
             'password' => getenv('DB_PASSWORD') ?: '',
             'charset' => 'utf8',
         ]);
+        $connection->open();
+        return $connection;
+    }
+
+    private function yii3Connection(): Yii3Connection
+    {
+        if (!class_exists(Yii3Connection::class)) {
+            self::markTestSkipped('Yii3 DB not installed; run Yii3 adapter CI job');
+        }
+
+        $driver = new Yii3Driver(
+            sprintf(
+                'pgsql:host=%s;port=%s;dbname=%s',
+                getenv('DB_HOST') ?: '127.0.0.1',
+                getenv('DB_PORT') ?: '5432',
+                getenv('DB_NAME') ?: 'webhooks',
+            ),
+            getenv('DB_USER') ?: 'webhooks',
+            getenv('DB_PASSWORD') ?: '',
+        );
+        $connection = new Yii3Connection($driver);
         $connection->open();
         return $connection;
     }

@@ -65,10 +65,44 @@ jobs:
         run: |
           composer config --no-interaction repositories.asset-packagist composer https://asset-packagist.org
           composer config --no-interaction allow-plugins.yiisoft/yii2-composer true
-          composer require --dev --no-interaction --no-progress "yiisoft/yii2:^2.0.53" "doctrine/dbal:^4.3"
+          composer require --dev --no-interaction --no-progress "yiisoft/yii2:^2.0.53" "doctrine/dbal:^4.3" "yiisoft/db-pgsql:^2.0"
       - run: php examples/basic/bin/migrate.php
       - run: vendor/bin/phpunit tests/AdapterIntegrationTest.php
       - run: vendor/bin/phpstan analyse --configuration phpstan-adapters.neon --no-progress
+
+  yii3-adapter:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: webhooks
+          POSTGRES_USER: webhooks
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U webhooks -d webhooks"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    env: *db_env
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_pgsql
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Install Yii3 PostgreSQL database packages
+        run: composer require --dev --no-interaction --no-progress "yiisoft/db-pgsql:^2.0"
+      - run: php examples/basic/bin/migrate.php
+      - name: Run Yii3 database adapter contract against PostgreSQL 17
+        run: vendor/bin/phpunit tests/AdapterIntegrationTest.php --filter Yii3
+      - name: Static analysis for Yii3 adapter
+        run: vendor/bin/phpstan analyse src/Adapter/Yii3Adapter.php --configuration phpstan-adapters.neon --level=6 --no-progress
 
   consumer:
     runs-on: ubuntu-latest

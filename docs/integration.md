@@ -1,6 +1,6 @@
 # Installation and integration
 
-This guide documents the **v0.2.0 GitHub release** and its real API: `Inbox`, `Receiver`, `Worker`, `EventHandler`, `ConnectionInterface`, and optional PDO/Yii2/Doctrine adapters.
+This guide documents the **v0.2.0 GitHub release** and its real API: `Inbox`, `Receiver`, `Worker`, `EventHandler`, `ConnectionInterface`, and optional PDO/Yii2/Doctrine adapters (plus the Yii3 adapter in the development branch).
 
 Requirements: **PHP 8.3+**, **PostgreSQL 16+**, Composer 2. The host application owns its connection and migrations. **Packagist availability requires registration by the maintainer**; use the GitHub VCS fallback until the [package listing](https://packagist.org/packages/ktulchu/php-webhook-inbox) is active.
 
@@ -328,7 +328,32 @@ public function actionOnce(): int
 
 For an `InboxController`, you can then run `php yii inbox/once`. The worker requires an **idle** Yii2 connection. The adapter routes Inbox SQL to **master** even when Yii2 slaves are configured and bypasses the query cache; original routing is restored after each call.
 
-## 5. Symfony and Doctrine DBAL 4
+## 5. Yii3 (Yii DB 2, PostgreSQL)
+
+**Development branch:** this adapter is not part of the tagged `v0.2.0` release. It uses the Yii3 database API, **not** the Yii2 `yii\\db\\Connection` class.
+
+Install `yiisoft/db-pgsql:^2.0` in your existing Yii3 application and inject its configured PostgreSQL database connection. The library does not open a second connection, register a container binding, or change transaction settings.
+
+```php
+use Ktulchu\WebhookInbox\Adapter\Yii3Adapter;
+use Ktulchu\WebhookInbox\Inbox;
+use Ktulchu\WebhookInbox\Worker;
+use Yiisoft\Db\Connection\ConnectionInterface as YiiConnection;
+
+// $connection is the application's PostgreSQL Yii DB connection
+// (provided by the Yii3 DI container).
+$db = new Yii3Adapter($connection);
+$status = (new Inbox($db))->receive('provider', 'event-123', $rawBody);
+
+// YourHandler implements EventHandler and writes through the $db argument.
+$processed = (new Worker($db, new YourHandler()))->runOnce();
+```
+
+The receiving endpoint must first authenticate the actual provider signature using the original HTTP request bytes. Do not use the demo HMAC protocol as a substitute for provider verification. In production, use separate request and worker lifecycles, and return a retriable **5xx** on database or transaction failure. Never return **202** for an event not committed to the inbox.
+
+Both `Inbox` and the worker require an idle connection at their entry points. The adapter tracks only transactions it starts; caller-managed Yii3 transactions are rejected without modification. With a PDO-backed Yii3 connection it also detects native PDO transactions started outside Yii3. Raw SQL commands use the injected connection and do not use Yii2's replica routing/query cache.
+
+## 6. Symfony and Doctrine DBAL 4
 
 Install the inbox package in your existing Symfony application. Configure its **Doctrine DBAL 4 PostgreSQL** `Doctrine\DBAL\Connection` service; the library does not create a connection or install Symfony itself.
 
@@ -430,7 +455,7 @@ Implement `App\Webhook\PaymentHandler` with `EventHandler::handle(ConnectionInte
 
 Both SQL execution and transaction management stay inside DBAL. `DoctrineAdapter::inTransaction()` detects DBAL-managed transactions, **not necessarily transactions started directly via its underlying native driver**. Bypassing the DBAL transaction API is **unsupported**; it can defeat the admission guard and break transaction bookkeeping. Inbox and the handler must use the same physical PostgreSQL connection.
 
-## 6. Custom database adapters
+## 7. Custom database adapters
 
 Implement `Ktulchu\WebhookInbox\ConnectionInterface`:
 
@@ -448,7 +473,7 @@ interface ConnectionInterface
 
 The implementation must support named SQL parameters with keys **without** leading colons; `fetchOne()` returns an associative row or `null` and supports `INSERT ... RETURNING`; `execute()` supports PostgreSQL `SAVEPOINT` and `ROLLBACK TO SAVEPOINT`. Inbox SQL must use **master/writer with uncached reads**. All SQL for a worker turn and its event handler must use **one physical PostgreSQL connection**. `inTransaction()` must reject **caller-owned active transactions** before any admission; don't silently commit, rollback or open an alternative connection.
 
-## 7. HTTP and production boundaries
+## 8. HTTP and production boundaries
 
 - Validate a real provider's **native signature against the original raw HTTP bytes**; use a server-trusted source ID (max. 64 characters) and an event ID (max. 200 characters) before `Inbox::receive(source, eventId, rawBody)`.
 - The **demo** protocol is `sha256=HMAC_SHA256(timestamp + "." + rawBody)`, with ±300 seconds tolerance, max. 256 KiB and an `id` matching `[A-Za-z0-9_.:-]{1,200}`. It is not a Stripe, GitHub, Robokassa or other provider verifier.

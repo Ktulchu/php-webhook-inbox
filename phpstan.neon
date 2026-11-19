@@ -7,5 +7,6 @@ parameters:
     excludePaths:
         analyse:
             - src/Adapter/Yii2Adapter.php
+            - src/Adapter/Yii3Adapter.php
             - src/Adapter/DoctrineAdapter.php
             - tests/AdapterIntegrationTest.php
