@@ -1,6 +1,6 @@
 # Installation and integration
 
-This guide documents the **v0.2.0 GitHub release** and its real API: `Inbox`, `Receiver`, `Worker`, `EventHandler`, `ConnectionInterface`, and optional PDO/Yii2/Doctrine adapters (plus the Yii3 adapter in the development branch).
+This guide documents the **v0.3.0 GitHub release** and its real API: `Inbox`, `Receiver`, `Worker`, `EventHandler`, `ConnectionInterface`, and optional PDO/Yii2/Yii3/Doctrine adapters.
 
 Requirements: **PHP 8.3+**, **PostgreSQL 16+**, Composer 2. The host application owns its connection and migrations. **Packagist availability requires registration by the maintainer**; use the GitHub VCS fallback until the [package listing](https://packagist.org/packages/ktulchu/php-webhook-inbox) is active.
 
@@ -8,25 +8,25 @@ Requirements: **PHP 8.3+**, **PostgreSQL 16+**, Composer 2. The host application
 
 ### Packagist (once registered)
 
-Once [ktulchu/php-webhook-inbox](https://packagist.org/packages/ktulchu/php-webhook-inbox) is listed with tag `v0.2.0`, run inside your application:
+Once [ktulchu/php-webhook-inbox](https://packagist.org/packages/ktulchu/php-webhook-inbox) is listed with tag `v0.3.0`, run inside your application:
 
 ```bash
-composer require 'ktulchu/php-webhook-inbox:^0.2'
+composer require 'ktulchu/php-webhook-inbox:^0.3'
 ```
 
 Until the maintainer registers the package, use the **tagged GitHub release directly**:
 
 ```bash
 composer config repositories.webhook-inbox vcs https://github.com/Ktulchu/php-webhook-inbox.git
-composer require 'ktulchu/php-webhook-inbox:^0.2'
+composer require 'ktulchu/php-webhook-inbox:^0.3'
 ```
 
-Commit the host application's `composer.lock` to pin the actual revision. These instructions select the `v0.2.0` tag, not the previous PR development branch.
+Commit the host application's `composer.lock` to pin the actual revision. These instructions select the `v0.3.0` tag, not the previous PR development branch.
 
 ### Local checkout (verified by the independent consumer in CI)
 
 ```bash
-git clone --branch v0.2.0 https://github.com/Ktulchu/php-webhook-inbox.git
+git clone --branch v0.3.0 https://github.com/Ktulchu/php-webhook-inbox.git
 ```
 
 In the **consuming application's** `composer.json`, alongside its existing keys (adjust the path):
@@ -37,18 +37,18 @@ In the **consuming application's** `composer.json`, alongside its existing keys 
     "type": "path",
     "url": "../php-webhook-inbox",
     "options": {
-      "versions": {"ktulchu/php-webhook-inbox": "0.2.0"}
+      "versions": {"ktulchu/php-webhook-inbox": "0.3.0"}
     }
   }],
   "require": {
-    "ktulchu/php-webhook-inbox": "^0.2"
+    "ktulchu/php-webhook-inbox": "^0.3"
   }
 }
 ```
 
-Then run `composer install` in a new consuming project or `composer update ktulchu/php-webhook-inbox` in an existing one. `0.2.0` here is a **local-only version override**, separate from the released tag. See [the CI consumer](../tests/fixtures/consumer/composer.json). After the package appears on Packagist, remove the path override and install the public `^0.2` release.
+Then run `composer install` in a new consuming project or `composer update ktulchu/php-webhook-inbox` in an existing one. `0.3.0` here is a **local-only version override**, separate from the released tag. See [the CI consumer](../tests/fixtures/consumer/composer.json). After the package appears on Packagist, remove the path override and install the public `^0.3` release.
 
-Your application needs the DB driver it uses: `ext-pdo` + `ext-pdo_pgsql` for `PdoAdapter`, an existing `yii\db\Connection` for `Yii2Adapter`, or an existing **Doctrine DBAL 4** `Connection` for `DoctrineAdapter`. Neither framework is required by the library core.
+Your application needs the DB driver it uses: `ext-pdo` + `ext-pdo_pgsql` for `PdoAdapter`, an existing `yii\db\Connection` for `Yii2Adapter`, `yiisoft/db-pgsql:^2.0` for `Yii3Adapter`, or an existing **Doctrine DBAL 4** `Connection` for `DoctrineAdapter`. Framework packages are optional host dependencies, not required by the library core.
 
 ## 2. Database setup
 
@@ -237,7 +237,7 @@ Expected: one processed row (`demo`, `evt-001`, `125`) and inbox status `done`. 
 
 ### Windows PowerShell request to the bundled Docker demo
 
-After cloning the **v0.2.0 tag**, running `Copy-Item .env.example .env` and `docker compose up --build -d`, run this on Windows PowerShell 5.1+ (no OpenSSL needed):
+After cloning the **v0.3.0 tag**, running `Copy-Item .env.example .env` and `docker compose up --build -d`, run this on Windows PowerShell 5.1+ (no OpenSSL needed):
 
 ```powershell
 $secret = 'replace-with-a-random-secret-of-at-least-32-bytes'
@@ -330,9 +330,15 @@ For an `InboxController`, you can then run `php yii inbox/once`. The worker requ
 
 ## 5. Yii3 (Yii DB 2, PostgreSQL)
 
-**Development branch:** this adapter is not part of the tagged `v0.2.0` release. It uses the Yii3 database API, **not** the Yii2 `yii\\db\\Connection` class.
+**Available since v0.3.0.** It uses the Yii3 database API, **not** the Yii2 `yii\\db\\Connection` class.
 
 Install `yiisoft/db-pgsql:^2.0` in your existing Yii3 application and inject its configured PostgreSQL database connection. The library does not open a second connection, register a container binding, or change transaction settings.
+
+```bash
+composer require 'ktulchu/php-webhook-inbox:^0.3' 'yiisoft/db-pgsql:^2.0'
+```
+
+If the release is not yet available on Packagist, first add the GitHub VCS repository described in section 1. No development-branch constraint is needed.
 
 ```php
 use Ktulchu\WebhookInbox\Adapter\Yii3Adapter;

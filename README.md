@@ -10,51 +10,51 @@ The core is framework-independent. Choose an adapter for the database connection
 
 - **[PDO](src/Adapter/PdoAdapter.php)** — plain PHP with `pdo_pgsql`.
 - **[Yii2](src/Adapter/Yii2Adapter.php)** — Yii2 `yii\db\Connection`.
-- **[Yii3](src/Adapter/Yii3Adapter.php)** — Yii DB 2 PostgreSQL connection (`yiisoft/db-pgsql`), on the development branch; not included in tagged v0.2.0.
+- **[Yii3](src/Adapter/Yii3Adapter.php)** — Yii DB 2 PostgreSQL connection (`yiisoft/db-pgsql`), included since v0.3.0.
 - **[Symfony / Doctrine DBAL 4](src/Adapter/DoctrineAdapter.php)** — Doctrine `Connection` (including Symfony projects).
 
-See the [integration guide](docs/integration.md) for usage and examples. Laravel has no dedicated adapter in `v0.2.0`; use the PDO adapter only when the application's connection/transaction ownership requirements are met.
+See the [integration guide](docs/integration.md) for usage and examples. Laravel has no dedicated adapter in `v0.3.0`; use the PDO adapter only when the application's connection/transaction ownership requirements are met.
 
 ## Project background
 
 The webhook processing problems and design decisions behind this library come from years of commercial integration work. This public repository contains a standalone, generalized implementation rather than the original application's code. The earlier development history stays in private commercial GitLab; the public GitHub history begins with extraction and packaging, and this release has its own tests and lifecycle.
 
-**Version:** `v0.2.0` is the first tagged GitHub release. To install from Packagist, the maintainer must first register the repository at [packagist.org](https://packagist.org/); until the [package listing](https://packagist.org/packages/ktulchu/php-webhook-inbox) is available, use the GitHub VCS repository instructions below. This is an early release, not a claim of security-audited production readiness.
+**Version:** `v0.3.0` adds Yii3 PostgreSQL support to the Composer library. To install from Packagist, the maintainer must first register the repository at [packagist.org](https://packagist.org/); until the [package listing](https://packagist.org/packages/ktulchu/php-webhook-inbox) is available, use the GitHub VCS repository instructions below. This is an early release, not a claim of security-audited production readiness.
 
 ## Requirements
 
 - PHP **8.3+**, Composer 2, **PostgreSQL 16+**.
 - With `PdoAdapter`: PHP extensions `pdo` and `pdo_pgsql`, an existing PostgreSQL PDO configured with `PDO::ERRMODE_EXCEPTION`.
 - With `Yii2Adapter`: an existing `yii\db\Connection` from your Yii2 application.
-- With `Yii3Adapter` (development branch): an existing `Yiisoft\Db\Connection\ConnectionInterface` backed by `yiisoft/db-pgsql:^2.0`; PostgreSQL only.
+- With `Yii3Adapter`: an existing `Yiisoft\Db\Connection\ConnectionInterface` backed by `yiisoft/db-pgsql:^2.0`; PostgreSQL only.
 - With `DoctrineAdapter`: an existing **Doctrine DBAL 4** `Connection` (e.g. in Symfony).
 - The library **does not create DB connections or run migrations** for your application. Yii2, Yii3 DB, and Doctrine are optional, not required by the core.
 
-## Install v0.2 in an existing application
+## Install v0.3 in an existing application
 
 ### Option A: Packagist (after the package is registered)
 
-Once the [Packagist package listing](https://packagist.org/packages/ktulchu/php-webhook-inbox) exists and includes tag `v0.2.0`, run inside **your application**:
+Once the [Packagist package listing](https://packagist.org/packages/ktulchu/php-webhook-inbox) exists and includes tag `v0.3.0`, run inside **your application**:
 
 ```bash
-composer require 'ktulchu/php-webhook-inbox:^0.2'
+composer require 'ktulchu/php-webhook-inbox:^0.3'
 ```
 
 **If the package is not listed yet**, use the GitHub VCS repository instead:
 
 ```bash
 composer config repositories.webhook-inbox vcs https://github.com/Ktulchu/php-webhook-inbox.git
-composer require 'ktulchu/php-webhook-inbox:^0.2'
+composer require 'ktulchu/php-webhook-inbox:^0.3'
 ```
 
-Both commands select the **tagged v0.2.0 release**, not the old development branch. Your application must already have its chosen database driver and framework. Commit the application's `composer.lock`.
+Both commands select the **tagged v0.3.0 release**, not the old development branch. Your application must already have its chosen database driver and framework. Commit the application's `composer.lock`.
 
 ### Option B: Local Composer `path` repository (tested by CI)
 
 Clone the tagged release **next to your application**:
 
 ```bash
-git clone --branch v0.2.0 https://github.com/Ktulchu/php-webhook-inbox.git
+git clone --branch v0.3.0 https://github.com/Ktulchu/php-webhook-inbox.git
 ```
 
 In the **consuming application's** `composer.json` (adjust the relative path to suit your directories), add:
@@ -66,19 +66,19 @@ In the **consuming application's** `composer.json` (adjust the relative path to 
       "type": "path",
       "url": "../php-webhook-inbox",
       "options": {
-        "versions": {"ktulchu/php-webhook-inbox": "0.2.0"}
+        "versions": {"ktulchu/php-webhook-inbox": "0.3.0"}
       }
     }
   ],
   "require": {
-    "ktulchu/php-webhook-inbox": "^0.2"
+    "ktulchu/php-webhook-inbox": "^0.3"
   }
 }
 ```
 
 These are the relevant fields of `composer.json`: **merge** them with your existing `require` and `repositories`, do not replace the entire application configuration. Run `composer install` for a new consumer, or `composer update ktulchu/php-webhook-inbox` in an existing project.
 
-**Important:** `0.2.0` here is a **local path-repository version override** (as in [our tested consumer](tests/fixtures/consumer/composer.json)), not a Packagist publishing step. Remove the path repository and override when switching to the Packagist release.
+**Important:** `0.3.0` here is a **local path-repository version override** (as in [our tested consumer](tests/fixtures/consumer/composer.json)), not a Packagist publishing step. Remove the path repository and override when switching to the Packagist release.
 
 ## Create the database table
 
@@ -140,14 +140,14 @@ $worker = new Worker($db, $handler);
 $worker->runOnce(); // true: one event claimed; false: no ready event
 ```
 
-Here `processed_webhooks` is an **example business table to create yourself**. See the [complete step-by-step example](docs/integration.md) for its SQL, a signed HTTP endpoint, a worker CLI, and Yii2/Symfony integration.
+Here `processed_webhooks` is an **example business table to create yourself**. See the [complete step-by-step example](docs/integration.md) for its SQL, a signed HTTP endpoint, a worker CLI, and Yii2/Yii3/Symfony integration.
 
 ## Run the bundled Docker demo
 
 This is a **separate local demonstration**, not an instruction to deploy PHP's built-in server to production. Requires Docker Compose and OpenSSL for the sample signed request.
 
 ```bash
-git clone --branch v0.2.0 https://github.com/Ktulchu/php-webhook-inbox.git
+git clone --branch v0.3.0 https://github.com/Ktulchu/php-webhook-inbox.git
 cd php-webhook-inbox
 cp .env.example .env
 docker compose up --build -d
@@ -193,4 +193,4 @@ docker compose --profile worker up -d --scale worker=3 worker
 
 [Detailed PHP / Yii2 / Yii3 / Symfony examples](docs/integration.md) · [Architectural decisions](docs/adr/0003-connection-contract.md) · [Security](SECURITY.md) · MIT License.
 
-**CI** covers PostgreSQL integration tests, optional-framework contract tests, a separate Composer consumer, PHPStan, Composer audit and Docker smoke testing. See [v0.2.0 release notes](docs/releases/v0.2.0.md).
+**CI** covers PostgreSQL integration tests, optional-framework contract tests, a separate Composer consumer, PHPStan, Composer audit and Docker smoke testing. See [v0.3.0 release notes](docs/releases/v0.3.0.md).
