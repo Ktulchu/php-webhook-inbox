@@ -22,7 +22,7 @@ as the worker. Savepoints remain explicit PostgreSQL SQL statements (not nested
 framework transactions). Demo configuration stays in examples, never in the core.
 
 The optional Yii3 adapter accepts an application-owned Yii DB 2 PostgreSQL
-`Yiisoft\\Db\\Connection\\ConnectionInterface` (via `yiisoft/db-pgsql`). It
+`Yiisoft\Db\Connection\ConnectionInterface` (via `yiisoft/db-pgsql`). It
 executes raw commands on that injected connection, tracks only the transaction
 it starts, rejects caller-owned Yii3 transactions and, for PDO-backed
 connections, also guards against native PDO transactions. It does not create
